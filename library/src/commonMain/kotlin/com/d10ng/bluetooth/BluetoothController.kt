@@ -6,7 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.plus
 
 /**
  * 蓝牙控制器
@@ -60,7 +59,7 @@ object BluetoothController {
         val list = scanDevicesFlow.value.toMutableList()
         list.removeAll { it.address == device.address }
         list.add(device)
-        scanDevicesFlow.value = list.apply { sortBy { it.rssi } }
+        scanDevicesFlow.value = list.apply { sortByDescending { it.rssi } }
     }
 
     /**
@@ -69,6 +68,7 @@ object BluetoothController {
      * @return List<BluetoothGattService>
      */
     suspend fun connect(device: BluetoothDevice): List<BluetoothGattService> {
+        cancelScan()
         val list = BluetoothControllerMultiplatform.connect(device.address)
         val devices = connectedDevicesFlow.value.toMutableList()
         devices.removeAll { it.address == device.address }
