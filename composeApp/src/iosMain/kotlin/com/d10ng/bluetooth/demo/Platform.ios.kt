@@ -1,4 +1,4 @@
-package com.d10ng.bluetooth
+package com.d10ng.bluetooth.demo
 
 import platform.UIKit.UIDevice
 

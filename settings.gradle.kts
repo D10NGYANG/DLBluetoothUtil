@@ -25,7 +25,8 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        maven("https://raw.githubusercontent.com/D10NGYANG/maven-repo/main/repository")
     }
 }
 
-include(":composeApp")
+include(":composeApp", ":library")
