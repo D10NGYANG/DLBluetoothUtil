@@ -16,3 +16,9 @@ class LocationOffException : Exception("位置信息未开启")
 
 // 未找到设备
 class DeviceNotFoundException : Exception("未找到设备")
+
+// 不支持蓝牙
+class BluetoothNotSupportException : Exception("不支持蓝牙")
+
+// 设备未连接
+class DeviceNotConnectedException : Exception("设备未连接")

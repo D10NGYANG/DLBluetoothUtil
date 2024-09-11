@@ -20,13 +20,7 @@ data class BluetoothGattCharacteristic(
      * @return List<BluetoothGattCharacteristicProperty>
      */
     fun getProperties(): List<BluetoothGattCharacteristicProperty> {
-        val list = mutableListOf<BluetoothGattCharacteristicProperty>()
-        BluetoothGattCharacteristicProperty.entries.forEach { pro ->
-            if (properties and pro.value != 0) {
-                list.add(pro)
-            }
-        }
-        return list
+        return properties.bleGattCharacteristicProperties()
     }
 
     /**
@@ -34,7 +28,7 @@ data class BluetoothGattCharacteristic(
      * @return Boolean
      */
     fun isReadable(): Boolean {
-        return properties and BluetoothGattCharacteristicProperty.READ.value != 0
+        return properties.bleGattCharacteristicReadable()
     }
 
     /**
@@ -42,8 +36,7 @@ data class BluetoothGattCharacteristic(
      * @return Boolean
      */
     fun isWriteable(): Boolean {
-        return properties and BluetoothGattCharacteristicProperty.WRITE.value != 0
-                || properties and BluetoothGattCharacteristicProperty.WRITE_NO_RESPONSE.value != 0
+        return properties.bleGattCharacteristicWriteable()
     }
 
     /**
@@ -51,7 +44,7 @@ data class BluetoothGattCharacteristic(
      * @return Boolean
      */
     fun isNotifiable(): Boolean {
-        return properties and BluetoothGattCharacteristicProperty.NOTIFY.value != 0
+        return properties.bleGattCharacteristicNotifiable()
     }
 }
 
@@ -64,4 +57,27 @@ enum class BluetoothGattCharacteristicProperty(val value: Int) {
     INDICATE(32),
     SIGNED_WRITE(64),
     EXTENDED_PROPS(128)
+}
+
+fun Int.bleGattCharacteristicProperties(): List<BluetoothGattCharacteristicProperty> {
+    val list = mutableListOf<BluetoothGattCharacteristicProperty>()
+    BluetoothGattCharacteristicProperty.entries.forEach { pro ->
+        if (this and pro.value != 0) {
+            list.add(pro)
+        }
+    }
+    return list
+}
+
+fun Int.bleGattCharacteristicReadable(): Boolean {
+    return this and BluetoothGattCharacteristicProperty.READ.value != 0
+}
+
+fun Int.bleGattCharacteristicWriteable(): Boolean {
+    return this and BluetoothGattCharacteristicProperty.WRITE.value != 0
+        || this and BluetoothGattCharacteristicProperty.WRITE_NO_RESPONSE.value != 0
+}
+
+fun Int.bleGattCharacteristicNotifiable(): Boolean {
+    return this and BluetoothGattCharacteristicProperty.NOTIFY.value != 0
 }

@@ -23,6 +23,9 @@ kotlin {
             implementation(libs.dl.common)
         }
         androidMain.dependencies {
+            // Android
+            implementation(libs.androidx.core.ktx)
+            implementation("androidx.activity:activity-ktx:1.9.2")
             // 协程 Android
             implementation(libs.kotlinx.coroutines.android)
             // startup
