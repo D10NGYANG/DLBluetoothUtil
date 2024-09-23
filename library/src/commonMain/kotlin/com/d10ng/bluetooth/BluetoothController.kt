@@ -36,6 +36,23 @@ object BluetoothController {
     }
 
     /**
+     * 是否支持蓝牙
+     * @return Boolean
+     */
+    fun isBleSupport(): Boolean = controller.isBleSupport()
+
+    /**
+     * 是否已开启蓝牙
+     * @return Boolean
+     */
+    fun isBleEnable(): Boolean = controller.isBleEnable()
+
+    /**
+     * 开启蓝牙
+     */
+    suspend fun bleEnable() = controller.bleEnable()
+
+    /**
      * 开始扫描
      */
     fun startScan() {
