@@ -1,4 +1,4 @@
-rootProject.name = "DLBluetoothUtil"
+rootProject.name = "DLBluetoothUtil-Project"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
@@ -30,3 +30,4 @@ dependencyResolutionManagement {
 }
 
 include(":composeApp", ":library")
+project(":library").name = "DLBluetoothUtil"

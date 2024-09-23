@@ -5,7 +5,7 @@ package com.d10ng.bluetooth
  * @Author d10ng
  * @Date 2024/9/10 15:35
  */
-expect object BluetoothControllerMultiplatform {
+interface IBluetoothController {
 
     /**
      * 是否支持蓝牙

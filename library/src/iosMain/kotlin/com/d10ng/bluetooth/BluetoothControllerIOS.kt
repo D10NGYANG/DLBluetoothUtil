@@ -27,7 +27,7 @@ import platform.darwin.NSObject
  * @Author d10ng
  * @Date 2024/9/10 15:35
  */
-actual object BluetoothControllerMultiplatform {
+object BluetoothControllerIOS: IBluetoothController {
     private val scope by lazy { CoroutineScope(Dispatchers.IO) }
     private val centralManager by lazy { CBCentralManager(delegate = centralDelegate, queue = null) }
     // 扫描设备
@@ -41,7 +41,7 @@ actual object BluetoothControllerMultiplatform {
         override fun centralManagerDidUpdateState(central: CBCentralManager) {
             // 状态更新
             val state = CBManagerStateEnum.from(central.state)
-            println("centralManagerDidUpdateState: ${state?.name}")
+            Logger.i("centralManagerDidUpdateState: ${state?.name}")
             if (state == CBManagerStateEnum.PoweredOn) startScan()
         }
 
@@ -51,16 +51,16 @@ actual object BluetoothControllerMultiplatform {
             advertisementData: Map<Any?, *>,
             RSSI: NSNumber
         ) {
-            println("didDiscoverPeripheral: ${didDiscoverPeripheral.name()} ${RSSI.intValue} ${didDiscoverPeripheral.identifier.UUIDString}")
+            Logger.i("didDiscoverPeripheral: ${didDiscoverPeripheral.name()} ${RSSI.intValue} ${didDiscoverPeripheral.identifier.UUIDString}")
             scanDevices.removeAll { it.identifier.UUIDString.contentEquals(didDiscoverPeripheral.identifier.UUIDString) }
             scanDevices.add(didDiscoverPeripheral)
             BluetoothController.onDeviceScan(BluetoothDevice(didDiscoverPeripheral.name(), didDiscoverPeripheral.identifier.UUIDString, RSSI.intValue))
         }
 
         override fun centralManager(central: CBCentralManager, didConnectPeripheral: CBPeripheral) {
-            println("didConnectPeripheral: ${didConnectPeripheral.name()} ${didConnectPeripheral.identifier.UUIDString}")
+            Logger.i("didConnectPeripheral: ${didConnectPeripheral.name()} ${didConnectPeripheral.identifier.UUIDString}")
             val mtu = didConnectPeripheral.maximumWriteValueLengthForType(CBCharacteristicWriteWithResponse)
-            println("mtu: $mtu")
+            Logger.i("mtu: $mtu")
             scope.launch {
                 deviceEventFlow.emit(CBCentralManagerDidConnectEvent(didConnectPeripheral))
             }
@@ -71,7 +71,7 @@ actual object BluetoothControllerMultiplatform {
             didFailToConnectPeripheral: CBPeripheral,
             error: NSError?
         ) {
-            println("didFailToConnectPeripheral: ${didFailToConnectPeripheral.name()} ${didFailToConnectPeripheral.identifier.UUIDString}")
+            Logger.i("didFailToConnectPeripheral: ${didFailToConnectPeripheral.name()} ${didFailToConnectPeripheral.identifier.UUIDString}")
             scope.launch {
                 deviceEventFlow.emit(CBCentralManagerDidFailToConnectEvent(didFailToConnectPeripheral, error))
             }
@@ -84,7 +84,7 @@ actual object BluetoothControllerMultiplatform {
             isReconnecting: Boolean,
             error: NSError?
         ) {
-            println("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} ${didDisconnectPeripheral.identifier.UUIDString}")
+            Logger.i("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} ${didDisconnectPeripheral.identifier.UUIDString}")
             val des = connectedDevices.filterKeys { it.identifier.UUIDString.contentEquals(didDisconnectPeripheral.identifier.UUIDString) }
             des.keys.forEach { connectedDevices.remove(it) }
             scope.launch {
@@ -96,13 +96,13 @@ actual object BluetoothControllerMultiplatform {
 
     private val peripheralDelegate = object : NSObject(), CBPeripheralDelegateProtocol {
         override fun peripheralDidUpdateName(peripheral: CBPeripheral) {
-            println("peripheralDidUpdateName: ${peripheral.name()} ${peripheral.identifier.UUIDString}")
+            Logger.i("peripheralDidUpdateName: ${peripheral.name()} ${peripheral.identifier.UUIDString}")
         }
 
         override fun peripheral(peripheral: CBPeripheral, didDiscoverServices: NSError?) {
             scope.launch {
                 if (didDiscoverServices != null) {
-                    println("Error with service discovery $didDiscoverServices")
+                    Logger.i("Error with service discovery $didDiscoverServices")
                     peripheralEventFlow.emit(CBPeripheralDidDiscoverServicesEvent(null))
                     return@launch
                 }
@@ -122,7 +122,7 @@ actual object BluetoothControllerMultiplatform {
         ) {
             scope.launch {
                 if (error != null) {
-                    println("Error discovering characteristics: $error")
+                    Logger.i("Error discovering characteristics: $error")
                     peripheralEventFlow.emit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, null))
                     return@launch
                 }
@@ -143,7 +143,7 @@ actual object BluetoothControllerMultiplatform {
             error: NSError?
         ) {
             if (error != null) {
-                println("Error update value for characteristics: $error")
+                Logger.i("Error update value for characteristics: $error")
             }
             val data = didUpdateValueForCharacteristic.value?.toByteArray()?: return
             scope.launch {
@@ -159,7 +159,7 @@ actual object BluetoothControllerMultiplatform {
             error: NSError?
         ) {
             if (error != null) {
-                println("Error write value for characteristics: $error")
+                Logger.i("Error write value for characteristics: $error")
             }
             scope.launch {
                 peripheralEventFlow.emit(CBPeripheralDidWriteValueForCharacteristicEvent(error == null))
@@ -171,7 +171,7 @@ actual object BluetoothControllerMultiplatform {
      * 是否支持蓝牙
      * @return Boolean
      */
-    actual fun isBleSupport(): Boolean {
+    override fun isBleSupport(): Boolean {
         return true
     }
 
@@ -179,21 +179,21 @@ actual object BluetoothControllerMultiplatform {
      * 是否已开启蓝牙
      * @return Boolean
      */
-    actual fun isBleEnable(): Boolean {
+    override fun isBleEnable(): Boolean {
         return centralManager.state == CBManagerStatePoweredOn
     }
 
     /**
      * 开启蓝牙
      */
-    actual suspend fun bleEnable() {
+    override suspend fun bleEnable() {
         // IOS没有对应的动作，开始扫描就会去申请开启蓝牙了
     }
 
     /**
      * 开始扫描
      */
-    actual fun startScan() {
+    override fun startScan() {
         stopScan()
         centralManager.scanForPeripheralsWithServices(null, null)
     }
@@ -201,7 +201,7 @@ actual object BluetoothControllerMultiplatform {
     /**
      * 结束扫描
      */
-    actual fun stopScan() {
+    override fun stopScan() {
         centralManager.stopScan()
     }
 
@@ -210,7 +210,7 @@ actual object BluetoothControllerMultiplatform {
      * @param address String
      * @return List<BluetoothGattService>
      */
-    actual suspend fun connect(address: String): List<BluetoothGattService> {
+    override suspend fun connect(address: String): List<BluetoothGattService> {
         val device = scanDevices.find { it.identifier.UUIDString.contentEquals(address) }?: throw Exception("device not found")
         centralManager.connectPeripheral(device, null)
         val event = deviceEventFlow.first()
@@ -238,7 +238,7 @@ actual object BluetoothControllerMultiplatform {
     /**
      * 断开连接
      */
-    actual fun disconnect(address: String) {
+    override fun disconnect(address: String) {
         val device = connectedDevices.filterKeys { it.identifier.UUIDString.contentEquals(address) }.keys.firstOrNull()?: return
         centralManager.cancelPeripheralConnection(device)
         connectedDevices.remove(device)
@@ -247,7 +247,7 @@ actual object BluetoothControllerMultiplatform {
     /**
      * 断开连接
      */
-    actual fun disconnectAll() {
+    override fun disconnectAll() {
         connectedDevices.forEach { centralManager.cancelPeripheralConnection(it.key) }
         connectedDevices.clear()
     }
@@ -259,7 +259,7 @@ actual object BluetoothControllerMultiplatform {
      * @param characteristicUuid String
      * @param enable Boolean
      */
-    actual fun notify(
+    override fun notify(
         address: String,
         serviceUuid: String,
         characteristicUuid: String,
@@ -284,7 +284,7 @@ actual object BluetoothControllerMultiplatform {
      * @param characteristicUuid String
      * @param value ByteArray
      */
-    actual suspend fun write(
+    override suspend fun write(
         address: String,
         serviceUuid: String,
         characteristicUuid: String,

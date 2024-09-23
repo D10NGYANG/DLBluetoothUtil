@@ -25,7 +25,7 @@ import java.util.UUID
  * @Author d10ng
  * @Date 2024/9/10 15:35
  */
-actual object BluetoothControllerMultiplatform {
+object BluetoothControllerAndroid: IBluetoothController {
 
     private val ble by lazy { BluetoothLe(ctx) }
     private val bluetoothManager by lazy { ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager? }
@@ -37,7 +37,7 @@ actual object BluetoothControllerMultiplatform {
     private val connections = mutableMapOf<String, GattClientScope>()
     private val subscribeJobMap = mutableMapOf<String, Job>()
 
-    actual fun isBleSupport(): Boolean {
+    override fun isBleSupport(): Boolean {
         // 检查设备是否支持蓝牙
         if (!ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH)) {
             return false
@@ -48,13 +48,13 @@ actual object BluetoothControllerMultiplatform {
         return ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
     }
 
-    actual fun isBleEnable(): Boolean {
+    override fun isBleEnable(): Boolean {
         if (isBleSupport().not()) return false
         // 检查蓝牙是否已开启
         return bluetoothAdapter!!.isEnabled
     }
 
-    actual suspend fun bleEnable() {
+    override suspend fun bleEnable() {
         if (isBleSupport().not()) throw BluetoothNotSupportException()
         if (isBleEnable()) return
         // 蓝牙未开启，请求用户开启蓝牙
@@ -62,7 +62,7 @@ actual object BluetoothControllerMultiplatform {
     }
 
     @SuppressLint("MissingPermission")
-    actual fun startScan() {
+    override fun startScan() {
         stopScan()
         scanJob = scope.launch {
             if (PermissionManager.request(locationPermissionArray).not()) throw LocationPermissionException()
@@ -76,13 +76,13 @@ actual object BluetoothControllerMultiplatform {
         }
     }
 
-    actual fun stopScan() {
+    override fun stopScan() {
         scanJob?.cancel()
         scanJob = null
     }
 
     @SuppressLint("MissingPermission")
-    actual suspend fun connect(address: String): List<BluetoothGattService> {
+    override suspend fun connect(address: String): List<BluetoothGattService> {
         val item = scanResults.find { it.deviceAddress.address.contentEquals(address) } ?: throw DeviceNotFoundException()
         connectJobMap[address] = scope.launch {
             ble.connectGatt(item.device) {
@@ -91,7 +91,7 @@ actual object BluetoothControllerMultiplatform {
             }
         }.apply {
             invokeOnCompletion {
-                println("断开连接，${address}，${it?.message}")
+                Logger.i("断开连接，${address}，${it?.message}")
                 connectJobMap.remove(address)
                 connections.remove(address)
                 val maps = subscribeJobMap.filterKeys { key -> key.split(" ")[0].contentEquals(address) }
@@ -114,13 +114,13 @@ actual object BluetoothControllerMultiplatform {
         return result
     }
 
-    actual fun disconnect(address: String) {
+    override fun disconnect(address: String) {
         connectJobMap[address]?.cancel()
         connectJobMap.remove(address)
         connections.remove(address)
     }
 
-    actual fun disconnectAll() {
+    override fun disconnectAll() {
         connectJobMap.values.forEach { it.cancel() }
         connectJobMap.clear()
         connections.clear()
@@ -133,7 +133,7 @@ actual object BluetoothControllerMultiplatform {
      * @param characteristicUuid String
      * @param enable Boolean
      */
-    actual fun notify(
+    override fun notify(
         address: String,
         serviceUuid: String,
         characteristicUuid: String,
@@ -166,7 +166,7 @@ actual object BluetoothControllerMultiplatform {
      * @param characteristicUuid String
      * @param value ByteArray
      */
-    actual suspend fun write(
+    override suspend fun write(
         address: String,
         serviceUuid: String,
         characteristicUuid: String,

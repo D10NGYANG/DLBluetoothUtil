@@ -1,11 +1,7 @@
 package com.d10ng.bluetooth
 
-import com.d10ng.common.transform.decodeGBK
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
 
 /**
  * 蓝牙控制器
@@ -14,7 +10,7 @@ import kotlinx.coroutines.launch
  */
 object BluetoothController {
 
-    private val scope = CoroutineScope(Dispatchers.Default)
+    private val controller = getBluetoothController()
     // 已连接设备列表
     val connectedDevicesFlow = MutableStateFlow(listOf<BluetoothDevice>())
     // 扫描设备列表
@@ -23,13 +19,15 @@ object BluetoothController {
     val scanningFlow = MutableStateFlow(false)
     // 通知数据
     val notifyDataFlow = MutableSharedFlow<Pair<String, ByteArray>>()
+    // 数据分包传输大小
+    var splitWriteNum = 20
 
-    init {
-        scope.launch {
-            notifyDataFlow.collect {
-                println("收到 ${it.first} 通知数据: ${it.second.decodeGBK()}")
-            }
-        }
+    /**
+     * 设置日志输出
+     * @param debug Boolean
+     */
+    fun setDebug(debug: Boolean) {
+        Logger.debug = debug
     }
 
     /**
@@ -39,7 +37,7 @@ object BluetoothController {
         scanDevicesFlow.value = listOf()
         cancelScan()
         scanningFlow.value = true
-        BluetoothControllerMultiplatform.startScan()
+        controller.startScan()
     }
 
     /**
@@ -47,7 +45,7 @@ object BluetoothController {
      */
     fun cancelScan() {
         scanningFlow.value = false
-        BluetoothControllerMultiplatform.stopScan()
+        controller.stopScan()
     }
 
     /**
@@ -69,7 +67,7 @@ object BluetoothController {
      */
     suspend fun connect(device: BluetoothDevice): List<BluetoothGattService> {
         cancelScan()
-        val list = BluetoothControllerMultiplatform.connect(device.address)
+        val list = controller.connect(device.address)
         val devices = connectedDevicesFlow.value.toMutableList()
         devices.removeAll { it.address == device.address }
         devices.add(device)
@@ -81,14 +79,14 @@ object BluetoothController {
      * 断开设备连接
      */
     fun disconnect(device: BluetoothDevice) {
-        BluetoothControllerMultiplatform.disconnect(device.address)
+        controller.disconnect(device.address)
     }
 
     /**
      * 断开所有设备连接
      */
     fun disconnectAll() {
-        BluetoothControllerMultiplatform.disconnectAll()
+        controller.disconnectAll()
     }
 
     /**
@@ -109,7 +107,7 @@ object BluetoothController {
      * @param enable Boolean
      */
     fun notify(address: String, serviceUuid: String, characteristicUuid: String, enable: Boolean) {
-        BluetoothControllerMultiplatform.notify(address, serviceUuid, characteristicUuid, enable)
+        controller.notify(address, serviceUuid, characteristicUuid, enable)
     }
 
     /**
@@ -120,6 +118,14 @@ object BluetoothController {
      * @param value ByteArray
      */
     suspend fun write(address: String, serviceUuid: String, characteristicUuid: String, value: ByteArray) {
-        BluetoothControllerMultiplatform.write(address, serviceUuid, characteristicUuid, value)
+        value.toList().chunked(splitWriteNum).map { it.toByteArray() }.forEach {
+            controller.write(address, serviceUuid, characteristicUuid, it)
+        }
     }
 }
+
+/**
+ * 获取蓝牙实现
+ * @return IBluetoothController
+ */
+expect fun getBluetoothController(): IBluetoothController
