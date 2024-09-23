@@ -12,6 +12,7 @@ import androidx.bluetooth.ScanResult
 import com.d10ng.app.managers.ActivityManager
 import com.d10ng.app.managers.PermissionManager
 import com.d10ng.app.status.isLocationEnabled
+import com.d10ng.common.base.toHexString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -106,8 +107,8 @@ object BluetoothControllerAndroid: IBluetoothController {
         val clientScope = connections[address]!!
         val result = mutableListOf<BluetoothGattService>()
         clientScope.services.forEach { service ->
-            val serviceItem = BluetoothGattService(service.uuid.toString(), service.characteristics.map { characteristic ->
-                BluetoothGattCharacteristic(characteristic.uuid.toString(), characteristic.properties)
+            val serviceItem = BluetoothGattService(service.uuid.toString().uppercase(), service.characteristics.map { characteristic ->
+                BluetoothGattCharacteristic(characteristic.uuid.toString().uppercase(), characteristic.properties)
             })
             result.add(serviceItem)
         }
@@ -154,6 +155,7 @@ object BluetoothControllerAndroid: IBluetoothController {
         subscribeJobMap[key] = scope.launch {
             val curKey = key
             clientScope.subscribeToCharacteristic(characteristic).collect {
+                Logger.i("收到通知，${curKey}，${it.toHexString()}")
                 BluetoothController.notifyDataFlow.emit(curKey to it)
             }
         }

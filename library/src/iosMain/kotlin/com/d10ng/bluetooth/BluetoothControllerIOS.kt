@@ -1,5 +1,6 @@
 package com.d10ng.bluetooth
 
+import com.d10ng.common.base.toHexString
 import com.d10ng.common.transform.toByteArray
 import com.d10ng.common.transform.toNSData
 import kotlinx.cinterop.ObjCSignatureOverride
@@ -148,6 +149,7 @@ object BluetoothControllerIOS: IBluetoothController {
             val data = didUpdateValueForCharacteristic.value?.toByteArray()?: return
             scope.launch {
                 val curKey = peripheral.identifier.UUIDString + " " + didUpdateValueForCharacteristic.service!!.UUID.UUIDString + " " + didUpdateValueForCharacteristic.UUID.UUIDString
+                Logger.i("收到通知，${curKey}：${data.toHexString()}")
                 BluetoothController.notifyDataFlow.emit(curKey to data)
             }
         }

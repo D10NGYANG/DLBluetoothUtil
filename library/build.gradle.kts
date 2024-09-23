@@ -4,7 +4,11 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
+    id("maven-publish")
 }
+
+group = "com.github.D10NGYANG"
+version = "0.1.0"
 
 kotlin {
     androidTarget {
@@ -31,7 +35,7 @@ kotlin {
             // startup
             implementation(libs.androidx.startup.runtime)
             // 蓝牙通讯
-            implementation(libs.androidx.bluetooth)
+            api(libs.androidx.bluetooth)
             // APP通用工具
             implementation(libs.dl.app)
         }
@@ -51,3 +55,32 @@ android {
     }
 }
 
+val bds100MavenUsername: String by project
+val bds100MavenPassword: String by project
+
+val javadocJar: TaskProvider<Jar> by tasks.registering(Jar::class) {
+    archiveClassifier.set("javadoc")
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            withType(MavenPublication::class) {
+                //artifactId = artifactId.replace(project.name, rootProject.name)
+                artifact(tasks["javadocJar"])
+            }
+        }
+        repositories {
+            maven {
+                url = uri("/Users/d10ng/project/kotlin/maven-repo/repository")
+            }
+            maven {
+                credentials {
+                    username = bds100MavenUsername
+                    password = bds100MavenPassword
+                }
+                setUrl("https://nexus.bds100.com/repository/maven-releases/")
+            }
+        }
+    }
+}

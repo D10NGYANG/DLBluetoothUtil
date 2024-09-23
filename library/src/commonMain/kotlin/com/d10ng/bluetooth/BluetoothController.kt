@@ -1,5 +1,6 @@
 package com.d10ng.bluetooth
 
+import com.d10ng.common.base.toHexString
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -21,6 +22,10 @@ object BluetoothController {
     val notifyDataFlow = MutableSharedFlow<Pair<String, ByteArray>>()
     // 数据分包传输大小
     var splitWriteNum = 20
+        set(value) {
+            Logger.i("set splitWriteNum = $value")
+            field = value
+        }
 
     /**
      * 设置日志输出
@@ -37,6 +42,7 @@ object BluetoothController {
         scanDevicesFlow.value = listOf()
         cancelScan()
         scanningFlow.value = true
+        Logger.i("开始蓝牙扫描")
         controller.startScan()
     }
 
@@ -45,6 +51,7 @@ object BluetoothController {
      */
     fun cancelScan() {
         scanningFlow.value = false
+        Logger.i("取消蓝牙扫描")
         controller.stopScan()
     }
 
@@ -54,6 +61,7 @@ object BluetoothController {
      */
     internal fun onDeviceScan(device: BluetoothDevice) {
         if (device.name == null) return
+        Logger.i("扫描到设备：${device.name}(${device.address})，信号强度：${device.rssi}")
         val list = scanDevicesFlow.value.toMutableList()
         list.removeAll { it.address == device.address }
         list.add(device)
@@ -67,7 +75,9 @@ object BluetoothController {
      */
     suspend fun connect(device: BluetoothDevice): List<BluetoothGattService> {
         cancelScan()
+        Logger.i("连接设备：${device.name}(${device.address})")
         val list = controller.connect(device.address)
+        Logger.i("设备连接成功，得到设备服务特征信息：${list}")
         val devices = connectedDevicesFlow.value.toMutableList()
         devices.removeAll { it.address == device.address }
         devices.add(device)
@@ -79,6 +89,7 @@ object BluetoothController {
      * 断开设备连接
      */
     fun disconnect(device: BluetoothDevice) {
+        Logger.i("断开设备：${device.name}(${device.address})")
         controller.disconnect(device.address)
     }
 
@@ -86,6 +97,7 @@ object BluetoothController {
      * 断开所有设备连接
      */
     fun disconnectAll() {
+        Logger.i("断开所有设备")
         controller.disconnectAll()
     }
 
@@ -94,6 +106,7 @@ object BluetoothController {
      * @param address String
      */
     internal fun onDeviceDisconnect(address: String) {
+        Logger.i("设备断开连接：${address}")
         val list = connectedDevicesFlow.value.toMutableList()
         list.removeAll { it.address == address }
         connectedDevicesFlow.value = list
@@ -107,6 +120,7 @@ object BluetoothController {
      * @param enable Boolean
      */
     fun notify(address: String, serviceUuid: String, characteristicUuid: String, enable: Boolean) {
+        Logger.i("打开通知：${address}，$serviceUuid，$characteristicUuid，$enable")
         controller.notify(address, serviceUuid, characteristicUuid, enable)
     }
 
@@ -118,8 +132,9 @@ object BluetoothController {
      * @param value ByteArray
      */
     suspend fun write(address: String, serviceUuid: String, characteristicUuid: String, value: ByteArray) {
-        value.toList().chunked(splitWriteNum).map { it.toByteArray() }.forEach {
-            controller.write(address, serviceUuid, characteristicUuid, it)
+        value.toList().chunked(splitWriteNum).map { it.toByteArray() }.forEach { data ->
+            Logger.i("写入数据：${address}，$serviceUuid，$characteristicUuid，${data.toHexString()}")
+            controller.write(address, serviceUuid, characteristicUuid, data)
         }
     }
 }
