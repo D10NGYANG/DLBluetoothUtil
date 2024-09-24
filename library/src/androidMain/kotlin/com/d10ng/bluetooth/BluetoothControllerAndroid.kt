@@ -155,7 +155,7 @@ object BluetoothControllerAndroid: IBluetoothController {
         subscribeJobMap[key] = scope.launch {
             val curKey = key
             clientScope.subscribeToCharacteristic(characteristic).collect {
-                Logger.i("收到通知，${curKey}，${it.toHexString()}")
+                //Logger.i("收到通知，${curKey}，${it.toHexString()}")
                 BluetoothController.notifyDataFlow.emit(curKey to it)
             }
         }

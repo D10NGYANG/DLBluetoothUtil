@@ -14,6 +14,7 @@ import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
 import platform.CoreBluetooth.CBCharacteristic
 import platform.CoreBluetooth.CBCharacteristicWriteWithResponse
+import platform.CoreBluetooth.CBCharacteristicWriteWithoutResponse
 import platform.CoreBluetooth.CBManagerStatePoweredOn
 import platform.CoreBluetooth.CBPeripheral
 import platform.CoreBluetooth.CBPeripheralDelegateProtocol
@@ -85,7 +86,7 @@ object BluetoothControllerIOS: IBluetoothController {
             isReconnecting: Boolean,
             error: NSError?
         ) {
-            Logger.i("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} ${didDisconnectPeripheral.identifier.UUIDString}")
+            Logger.i("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} ${didDisconnectPeripheral.identifier.UUIDString}, $error")
             val des = connectedDevices.filterKeys { it.identifier.UUIDString.contentEquals(didDisconnectPeripheral.identifier.UUIDString) }
             des.keys.forEach { connectedDevices.remove(it) }
             scope.launch {
@@ -149,7 +150,7 @@ object BluetoothControllerIOS: IBluetoothController {
             val data = didUpdateValueForCharacteristic.value?.toByteArray()?: return
             scope.launch {
                 val curKey = peripheral.identifier.UUIDString + " " + didUpdateValueForCharacteristic.service!!.UUID.UUIDString + " " + didUpdateValueForCharacteristic.UUID.UUIDString
-                Logger.i("收到通知，${curKey}：${data.toHexString()}")
+                //Logger.i("收到通知，${curKey}：${data.toHexString()}")
                 BluetoothController.notifyDataFlow.emit(curKey to data)
             }
         }
@@ -299,7 +300,7 @@ object BluetoothControllerIOS: IBluetoothController {
         val characteristic = connectedDevices[device]!![service]!!.firstOrNull { it.UUID.UUIDString.contentEquals(characteristicUuid) }
         if (characteristic == null) throw Exception("characteristic not found")
         if (characteristic.properties.toInt().bleGattCharacteristicWriteable().not()) throw Exception("characteristic not support write")
-        device.writeValue(value.toNSData(), characteristic, CBCharacteristicWriteWithResponse)
+        device.writeValue(value.toNSData(), characteristic, CBCharacteristicWriteWithoutResponse)
         val event = peripheralEventFlow.first { it is CBPeripheralDidWriteValueForCharacteristicEvent } as CBPeripheralDidWriteValueForCharacteristicEvent
         if (event.result.not()) throw Exception("write error")
     }
