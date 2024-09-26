@@ -22,6 +22,6 @@ enum class CBManagerStateEnum(val value: CBManagerState) {
     PoweredOn(CBManagerStatePoweredOn);
 
     companion object {
-        fun from(value: CBManagerState) = entries.firstOrNull { it.value == value }
+        fun from(value: CBManagerState) = entries.firstOrNull { it.value == value }?: Unknown
     }
 }

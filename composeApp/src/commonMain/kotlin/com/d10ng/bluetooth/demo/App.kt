@@ -75,6 +75,7 @@ fun App() {
                     modifier = Modifier
                         .padding(16.dp)
                         .clickable {
+                            println("isBleEnable = ${BluetoothController.isBleEnable()}")
                             if (BluetoothController.scanningFlow.value)
                                 BluetoothController.cancelScan()
                             else BluetoothController.startScan()

@@ -1,6 +1,5 @@
 package com.d10ng.bluetooth
 
-import com.d10ng.common.base.toHexString
 import com.d10ng.common.transform.toByteArray
 import com.d10ng.common.transform.toNSData
 import kotlinx.cinterop.ObjCSignatureOverride
@@ -8,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import platform.CoreBluetooth.CBCentralManager
@@ -15,7 +15,6 @@ import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
 import platform.CoreBluetooth.CBCharacteristic
 import platform.CoreBluetooth.CBCharacteristicWriteWithResponse
 import platform.CoreBluetooth.CBCharacteristicWriteWithoutResponse
-import platform.CoreBluetooth.CBManagerStatePoweredOn
 import platform.CoreBluetooth.CBPeripheral
 import platform.CoreBluetooth.CBPeripheralDelegateProtocol
 import platform.CoreBluetooth.CBService
@@ -31,20 +30,12 @@ import platform.darwin.NSObject
  */
 object BluetoothControllerIOS: IBluetoothController {
     private val scope by lazy { CoroutineScope(Dispatchers.IO) }
-    private val centralManager by lazy { CBCentralManager(delegate = centralDelegate, queue = null) }
-    // 扫描设备
-    private val scanDevices = mutableListOf<CBPeripheral>()
-    // 已连接设备
-    private val connectedDevices = mutableMapOf<CBPeripheral, Map<CBService, List<CBCharacteristic>>>()
-    // 设备事件
-    private val deviceEventFlow = MutableSharedFlow<CBCentralManagerEvent>()
-    private val peripheralEventFlow = MutableSharedFlow<CBPeripheralEvent>()
     private val centralDelegate = object : NSObject(), CBCentralManagerDelegateProtocol {
         override fun centralManagerDidUpdateState(central: CBCentralManager) {
             // 状态更新
             val state = CBManagerStateEnum.from(central.state)
-            Logger.i("centralManagerDidUpdateState: ${state?.name}")
-            if (state == CBManagerStateEnum.PoweredOn) startScan()
+            stateFlow.value = state
+            Logger.i("centralManagerDidUpdateState: ${state.name}")
         }
 
         override fun centralManager(
@@ -95,6 +86,16 @@ object BluetoothControllerIOS: IBluetoothController {
             BluetoothController.onDeviceDisconnect(didDisconnectPeripheral.identifier.UUIDString)
         }
     }
+    private val centralManager = CBCentralManager(delegate = centralDelegate, queue = null)
+    // 蓝牙状态
+    private var stateFlow = MutableStateFlow(CBManagerStateEnum.Unknown)
+    // 扫描设备
+    private val scanDevices = mutableListOf<CBPeripheral>()
+    // 已连接设备
+    private val connectedDevices = mutableMapOf<CBPeripheral, Map<CBService, List<CBCharacteristic>>>()
+    // 设备事件
+    private val deviceEventFlow = MutableSharedFlow<CBCentralManagerEvent>()
+    private val peripheralEventFlow = MutableSharedFlow<CBPeripheralEvent>()
 
     private val peripheralDelegate = object : NSObject(), CBPeripheralDelegateProtocol {
         override fun peripheralDidUpdateName(peripheral: CBPeripheral) {
@@ -183,7 +184,7 @@ object BluetoothControllerIOS: IBluetoothController {
      * @return Boolean
      */
     override fun isBleEnable(): Boolean {
-        return centralManager.state == CBManagerStatePoweredOn
+        return stateFlow.value == CBManagerStateEnum.PoweredOn
     }
 
     /**
