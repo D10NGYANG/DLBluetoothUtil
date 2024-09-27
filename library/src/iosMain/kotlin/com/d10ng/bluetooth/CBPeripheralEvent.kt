@@ -13,3 +13,4 @@ interface CBPeripheralEvent {}
 data class CBPeripheralDidDiscoverServicesEvent(val services: List<CBService>?) : CBPeripheralEvent
 data class CBPeripheralDidDiscoverCharacteristicsForServiceEvent(val service: CBService, val characteristics: List<CBCharacteristic>?) : CBPeripheralEvent
 data class CBPeripheralDidWriteValueForCharacteristicEvent(val result: Boolean) : CBPeripheralEvent
+class CBPeripheralIsReadyToSendWriteWithoutResponseEvent() : CBPeripheralEvent

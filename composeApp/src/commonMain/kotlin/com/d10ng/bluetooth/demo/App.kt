@@ -129,7 +129,7 @@ fun App() {
                                             } else if (characteristic.isWriteable()) {
                                                 scope.launch {
                                                     runCatching {
-                                                        val data = "\$CCICR,0,00*68\r\n".encodeToByteArray()
+                                                        val data = "\$CCSZX,1,16001004*62\r\n".encodeToByteArray()
                                                         BluetoothController.write(connectedDevices[0].address, service.uuid, characteristic.uuid, data)
                                                     }
                                                 }

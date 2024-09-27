@@ -5,16 +5,21 @@ import com.d10ng.common.transform.toNSData
 import kotlinx.cinterop.ObjCSignatureOverride
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.timeout
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
 import platform.CoreBluetooth.CBCharacteristic
 import platform.CoreBluetooth.CBCharacteristicWriteWithResponse
 import platform.CoreBluetooth.CBCharacteristicWriteWithoutResponse
+import platform.CoreBluetooth.CBDescriptor
 import platform.CoreBluetooth.CBPeripheral
 import platform.CoreBluetooth.CBPeripheralDelegateProtocol
 import platform.CoreBluetooth.CBService
@@ -22,6 +27,7 @@ import platform.CoreFoundation.CFAbsoluteTime
 import platform.Foundation.NSError
 import platform.Foundation.NSNumber
 import platform.darwin.NSObject
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * 蓝牙控制器多平台实现
@@ -162,11 +168,27 @@ object BluetoothControllerIOS: IBluetoothController {
             didWriteValueForCharacteristic: CBCharacteristic,
             error: NSError?
         ) {
+            Logger.i("didWriteValueForCharacteristic")
             if (error != null) {
                 Logger.i("Error write value for characteristics: $error")
             }
             scope.launch {
                 peripheralEventFlow.emit(CBPeripheralDidWriteValueForCharacteristicEvent(error == null))
+            }
+        }
+
+        override fun peripheral(
+            peripheral: CBPeripheral,
+            didWriteValueForDescriptor: CBDescriptor,
+            error: NSError?
+        ) {
+            Logger.i("didWriteValueForDescriptor")
+        }
+
+        override fun peripheralIsReadyToSendWriteWithoutResponse(peripheral: CBPeripheral) {
+            Logger.i("peripheralIsReadyToSendWriteWithoutResponse")
+            scope.launch {
+                peripheralEventFlow.emit(CBPeripheralIsReadyToSendWriteWithoutResponseEvent())
             }
         }
     }
@@ -288,6 +310,7 @@ object BluetoothControllerIOS: IBluetoothController {
      * @param characteristicUuid String
      * @param value ByteArray
      */
+    @OptIn(FlowPreview::class)
     override suspend fun write(
         address: String,
         serviceUuid: String,
@@ -302,8 +325,8 @@ object BluetoothControllerIOS: IBluetoothController {
         if (characteristic == null) throw Exception("characteristic not found")
         if (characteristic.properties.toInt().bleGattCharacteristicWriteable().not()) throw Exception("characteristic not support write")
         device.writeValue(value.toNSData(), characteristic, CBCharacteristicWriteWithoutResponse)
-        val event = peripheralEventFlow.first { it is CBPeripheralDidWriteValueForCharacteristicEvent } as CBPeripheralDidWriteValueForCharacteristicEvent
-        if (event.result.not()) throw Exception("write error")
+        val event = withTimeoutOrNull(1.seconds) { peripheralEventFlow.first { it is CBPeripheralIsReadyToSendWriteWithoutResponseEvent } as CBPeripheralIsReadyToSendWriteWithoutResponseEvent }
+        if (event == null) throw Exception("write error")
     }
 
 }
