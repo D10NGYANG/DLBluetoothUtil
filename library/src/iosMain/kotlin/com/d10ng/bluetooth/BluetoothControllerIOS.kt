@@ -48,11 +48,11 @@ object BluetoothControllerIOS: IBluetoothController {
             advertisementData: Map<Any?, *>,
             RSSI: NSNumber
         ) {
-            // TODO: 需要验证是否能拿到真实蓝牙名称，参考https://blog.csdn.net/qq_36478920/article/details/108265837
-            Logger.i("didDiscoverPeripheral: ${didDiscoverPeripheral.name()} (${advertisementData["kCBAdvDataLocalName"]}) ${RSSI.intValue} ${didDiscoverPeripheral.identifier.UUIDString}")
+            val name = advertisementData["kCBAdvDataLocalName"]?.toString()?: didDiscoverPeripheral.name()
+            Logger.i("didDiscoverPeripheral: $name ${RSSI.intValue} ${didDiscoverPeripheral.identifier.UUIDString}")
             scanDevices.removeAll { it.identifier.UUIDString.contentEquals(didDiscoverPeripheral.identifier.UUIDString) }
             scanDevices.add(didDiscoverPeripheral)
-            BluetoothController.onDeviceScan(BluetoothDevice(advertisementData["kCBAdvDataLocalName"]?.toString()?: didDiscoverPeripheral.name(), didDiscoverPeripheral.identifier.UUIDString, RSSI.intValue))
+            BluetoothController.onDeviceScan(BluetoothDevice(name, didDiscoverPeripheral.identifier.UUIDString, RSSI.intValue))
         }
 
         override fun centralManager(central: CBCentralManager, didConnectPeripheral: CBPeripheral) {
