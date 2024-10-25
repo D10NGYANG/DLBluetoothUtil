@@ -9,9 +9,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.timeout
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import platform.CoreBluetooth.CBCentralManager
@@ -50,10 +48,11 @@ object BluetoothControllerIOS: IBluetoothController {
             advertisementData: Map<Any?, *>,
             RSSI: NSNumber
         ) {
-            Logger.i("didDiscoverPeripheral: ${didDiscoverPeripheral.name()} ${RSSI.intValue} ${didDiscoverPeripheral.identifier.UUIDString}")
+            // TODO: 需要验证是否能拿到真实蓝牙名称，参考https://blog.csdn.net/qq_36478920/article/details/108265837
+            Logger.i("didDiscoverPeripheral: ${didDiscoverPeripheral.name()} (${advertisementData["kCBAdvDataLocalName"]}) ${RSSI.intValue} ${didDiscoverPeripheral.identifier.UUIDString}")
             scanDevices.removeAll { it.identifier.UUIDString.contentEquals(didDiscoverPeripheral.identifier.UUIDString) }
             scanDevices.add(didDiscoverPeripheral)
-            BluetoothController.onDeviceScan(BluetoothDevice(didDiscoverPeripheral.name(), didDiscoverPeripheral.identifier.UUIDString, RSSI.intValue))
+            BluetoothController.onDeviceScan(BluetoothDevice(advertisementData["kCBAdvDataLocalName"]?.toString()?: didDiscoverPeripheral.name(), didDiscoverPeripheral.identifier.UUIDString, RSSI.intValue))
         }
 
         override fun centralManager(central: CBCentralManager, didConnectPeripheral: CBPeripheral) {
