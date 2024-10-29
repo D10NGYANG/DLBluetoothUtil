@@ -2,6 +2,7 @@ package com.d10ng.bluetooth
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
@@ -12,7 +13,6 @@ import androidx.bluetooth.ScanResult
 import com.d10ng.app.managers.ActivityManager
 import com.d10ng.app.managers.PermissionManager
 import com.d10ng.app.status.isLocationEnabled
-import com.d10ng.common.base.toHexString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,12 +82,16 @@ object BluetoothControllerAndroid: IBluetoothController {
         scanJob = null
     }
 
-    @SuppressLint("MissingPermission")
+    @SuppressLint("MissingPermission", "RestrictedApi", "VisibleForTests")
     override suspend fun connect(address: String): List<BluetoothGattService> {
         val item = scanResults.find { it.deviceAddress.address.contentEquals(address) } ?: throw DeviceNotFoundException()
         connectJobMap[address] = scope.launch {
             ble.connectGatt(item.device) {
                 connections[address] = this
+                ble.client.fwkAdapter.fwkBluetoothGatt?.let { gatt ->
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                    Logger.i("完成连接属性设置 BluetoothGatt.CONNECTION_PRIORITY_HIGH")
+                }
                 awaitCancellation()
             }
         }.apply {

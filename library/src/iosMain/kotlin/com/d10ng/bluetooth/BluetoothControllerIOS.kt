@@ -15,8 +15,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
 import platform.CoreBluetooth.CBCharacteristic
-import platform.CoreBluetooth.CBCharacteristicWriteWithResponse
 import platform.CoreBluetooth.CBCharacteristicWriteWithoutResponse
+import platform.CoreBluetooth.CBConnectPeripheralOptionEnableAutoReconnect
+import platform.CoreBluetooth.CBConnectPeripheralOptionNotifyOnConnectionKey
+import platform.CoreBluetooth.CBConnectPeripheralOptionNotifyOnDisconnectionKey
 import platform.CoreBluetooth.CBDescriptor
 import platform.CoreBluetooth.CBPeripheral
 import platform.CoreBluetooth.CBPeripheralDelegateProtocol
@@ -57,7 +59,7 @@ object BluetoothControllerIOS: IBluetoothController {
 
         override fun centralManager(central: CBCentralManager, didConnectPeripheral: CBPeripheral) {
             Logger.i("didConnectPeripheral: ${didConnectPeripheral.name()} ${didConnectPeripheral.identifier.UUIDString}")
-            val mtu = didConnectPeripheral.maximumWriteValueLengthForType(CBCharacteristicWriteWithResponse)
+            val mtu = didConnectPeripheral.maximumWriteValueLengthForType(CBCharacteristicWriteWithoutResponse)
             Logger.i("mtu: $mtu")
             scope.launch {
                 deviceEventFlow.emit(CBCentralManagerDidConnectEvent(didConnectPeripheral))
@@ -237,7 +239,11 @@ object BluetoothControllerIOS: IBluetoothController {
      */
     override suspend fun connect(address: String): List<BluetoothGattService> {
         val device = scanDevices.find { it.identifier.UUIDString.contentEquals(address) }?: throw Exception("device not found")
-        centralManager.connectPeripheral(device, null)
+        centralManager.connectPeripheral(device, mapOf(
+            CBConnectPeripheralOptionNotifyOnConnectionKey to true,
+            CBConnectPeripheralOptionNotifyOnDisconnectionKey to true,
+            CBConnectPeripheralOptionEnableAutoReconnect to true
+        ))
         val event = deviceEventFlow.first()
         if (event is CBCentralManagerDidConnectEvent) {
             device.delegate = peripheralDelegate
