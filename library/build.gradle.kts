@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.github.D10NGYANG"
-version = "0.1.9"
+version = "0.1.10"
 
 kotlin {
     jvmToolchain(8)
