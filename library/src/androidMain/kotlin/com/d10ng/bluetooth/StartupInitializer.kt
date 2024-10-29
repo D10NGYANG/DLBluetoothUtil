@@ -3,6 +3,7 @@ package com.d10ng.bluetooth
 import android.app.Application
 import android.content.Context
 import androidx.startup.Initializer
+import com.bhm.ble.BleManager
 
 /**
  * 启动初始化
@@ -17,6 +18,7 @@ internal class StartupInitializer : Initializer<Unit> {
 
     override fun create(context: Context) {
         application = context as Application
+        BleManager.get().init(application)
     }
 
     override fun dependencies(): MutableList<Class<out Initializer<*>>> {

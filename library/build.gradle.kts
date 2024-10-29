@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.github.D10NGYANG"
-version = "0.1.7"
+version = "0.1.8"
 
 kotlin {
     jvmToolchain(8)
@@ -38,6 +38,8 @@ kotlin {
             implementation(libs.androidx.startup.runtime)
             // 蓝牙通讯
             api(libs.androidx.bluetooth)
+            // 蓝牙通讯2
+            api("com.github.buhuiming:BleCore:2.3.2")
             // APP通用工具
             implementation(libs.dl.app)
         }
