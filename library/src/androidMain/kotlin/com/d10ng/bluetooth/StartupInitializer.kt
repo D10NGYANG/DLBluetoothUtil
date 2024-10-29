@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import androidx.startup.Initializer
 import com.bhm.ble.BleManager
+import com.bhm.ble.attribute.BleOptions
+import com.bhm.ble.data.BleTaskQueueType
 
 /**
  * 启动初始化
@@ -18,7 +20,11 @@ internal class StartupInitializer : Initializer<Unit> {
 
     override fun create(context: Context) {
         application = context as Application
-        BleManager.get().init(application)
+        val options = BleOptions.builder()
+            .setEnableLog(true)
+            .setTaskQueueType(BleTaskQueueType.Operate)
+            .build()
+        BleManager.get().init(application, options)
     }
 
     override fun dependencies(): MutableList<Class<out Initializer<*>>> {

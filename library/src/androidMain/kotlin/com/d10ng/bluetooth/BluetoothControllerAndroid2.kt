@@ -20,7 +20,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -128,6 +127,7 @@ object BluetoothControllerAndroid2: IBluetoothController {
         withContext(Dispatchers.Main) { BleManager.get().connect(address, false, connectCallback) }
         val connectRes = connectEventFlow.first { it is BleConnectCallbackOnConnectSuccess || it is BleConnectCallbackOnConnectFail }
         if (connectRes is BleConnectCallbackOnConnectSuccess) {
+            BleManager.get().setConnectionPriority(connectRes.bleDevice, BluetoothGatt.CONNECTION_PRIORITY_HIGH)
             connectRes.gatt?.let { gatt ->
                 val list = mutableListOf<BluetoothGattService>()
                 gatt.services.forEach { serviceUuid ->
