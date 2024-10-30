@@ -83,11 +83,12 @@ object BluetoothControllerIOS: IBluetoothController {
             isReconnecting: Boolean,
             error: NSError?
         ) {
-            Logger.i("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} ${didDisconnectPeripheral.identifier.UUIDString}, $error")
-            val des = connectedDevices.filterKeys { it.identifier.UUIDString.contentEquals(didDisconnectPeripheral.identifier.UUIDString) }
-            des.keys.forEach { connectedDevices.remove(it) }
+            val deviceUUID = didDisconnectPeripheral.identifier.UUIDString
+            Logger.i("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} $deviceUUID, $error")
+            // 清理资源
+            disconnect(deviceUUID)
             scope.launch { deviceEventFlow.emit(CBCentralManagerDidDisconnectEvent(didDisconnectPeripheral, timestamp, isReconnecting, error)) }
-            BluetoothController.onDeviceDisconnect(didDisconnectPeripheral.identifier.UUIDString)
+            BluetoothController.onDeviceDisconnect(deviceUUID)
         }
     }
     private val centralManager = CBCentralManager(delegate = centralDelegate, queue = null)
