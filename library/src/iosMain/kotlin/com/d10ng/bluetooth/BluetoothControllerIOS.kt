@@ -27,7 +27,6 @@ import platform.CoreFoundation.CFAbsoluteTime
 import platform.Foundation.NSError
 import platform.Foundation.NSNumber
 import platform.darwin.NSObject
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * 蓝牙控制器多平台实现
@@ -87,9 +86,7 @@ object BluetoothControllerIOS: IBluetoothController {
             Logger.i("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} ${didDisconnectPeripheral.identifier.UUIDString}, $error")
             val des = connectedDevices.filterKeys { it.identifier.UUIDString.contentEquals(didDisconnectPeripheral.identifier.UUIDString) }
             des.keys.forEach { connectedDevices.remove(it) }
-            scope.launch {
-                deviceEventFlow.emit(CBCentralManagerDidDisconnectEvent(didDisconnectPeripheral, timestamp, isReconnecting, error))
-            }
+            scope.launch { deviceEventFlow.emit(CBCentralManagerDidDisconnectEvent(didDisconnectPeripheral, timestamp, isReconnecting, error)) }
             BluetoothController.onDeviceDisconnect(didDisconnectPeripheral.identifier.UUIDString)
         }
     }
@@ -330,7 +327,7 @@ object BluetoothControllerIOS: IBluetoothController {
         if (characteristic == null) throw Exception("characteristic not found")
         if (characteristic.properties.toInt().bleGattCharacteristicWriteable().not()) throw Exception("characteristic not support write")
         device.writeValue(value.toNSData(), characteristic, CBCharacteristicWriteWithoutResponse)
-        val event = withTimeoutOrNull(1.seconds) { peripheralEventFlow.first { it is CBPeripheralIsReadyToSendWriteWithoutResponseEvent } as CBPeripheralIsReadyToSendWriteWithoutResponseEvent }
+        val event = withTimeoutOrNull(500) { peripheralEventFlow.first { it is CBPeripheralIsReadyToSendWriteWithoutResponseEvent } as CBPeripheralIsReadyToSendWriteWithoutResponseEvent }
         if (event == null) throw Exception("write error")
     }
 

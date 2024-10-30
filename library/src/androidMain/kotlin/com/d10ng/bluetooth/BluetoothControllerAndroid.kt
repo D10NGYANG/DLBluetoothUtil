@@ -19,10 +19,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * 蓝牙控制器多平台实现
@@ -184,7 +182,7 @@ object BluetoothControllerAndroid: IBluetoothController {
         val clientScope = connections[address] ?: throw DeviceNotConnectedException()
         val server = clientScope.getService(UUID.fromString(serviceUuid))?: throw Exception("找不到服务")
         val characteristic = server.getCharacteristic(UUID.fromString(characteristicUuid))?: throw Exception("找不到特征")
-        val result = withTimeoutOrNull(1.seconds) { clientScope.writeCharacteristic(characteristic, value) }
+        val result = withTimeoutOrNull(500) { clientScope.writeCharacteristic(characteristic, value) }
         if (result == null || result.isFailure) throw Exception("写入失败")
     }
 }
