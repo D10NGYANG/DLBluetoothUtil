@@ -183,8 +183,6 @@ object BluetoothControllerAndroid: IBluetoothController {
         val server = clientScope.getService(UUID.fromString(serviceUuid))?: throw Exception("找不到服务")
         val characteristic = server.getCharacteristic(UUID.fromString(characteristicUuid))?: throw Exception("找不到特征")
         val result = withTimeoutOrNull(500) { clientScope.writeCharacteristic(characteristic, value) }
-        if (result == null || result.isFailure) throw Exception("写入失败")
-        // 每次写入增加1毫秒延迟，防止被蓝牙设备拒绝
-        delay(1)
+        if (result == null || result.isFailure) throw Exception("写入失败 $result")
     }
 }
