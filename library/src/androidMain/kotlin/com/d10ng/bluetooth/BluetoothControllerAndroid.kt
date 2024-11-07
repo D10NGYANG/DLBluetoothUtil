@@ -17,7 +17,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
@@ -37,6 +39,7 @@ object BluetoothControllerAndroid: IBluetoothController {
     private val scanResults = mutableListOf<ScanResult>()
     private val connectJobMap: MutableMap<String, Job> = mutableMapOf()
     private val connections = mutableMapOf<String, GattClientScope>()
+    private val connectEventFlow = MutableSharedFlow<Pair<String, Boolean>>()
     private val subscribeJobMap = mutableMapOf<String, Job>()
 
     override fun isBleSupport(): Boolean {
@@ -93,11 +96,13 @@ object BluetoothControllerAndroid: IBluetoothController {
                     gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                     Logger.i("完成连接属性设置 BluetoothGatt.CONNECTION_PRIORITY_HIGH")
                 }
+                connectEventFlow.emit(address to true)
                 awaitCancellation()
             }
         }.apply {
             invokeOnCompletion {
                 Logger.i("断开连接，${address}，${it?.message}")
+                scope.launch { connectEventFlow.emit(address to false) }
                 connectJobMap.remove(address)
                 connections.remove(address)
                 val maps = subscribeJobMap.filterKeys { key -> key.split(" ")[0].contentEquals(address) }
@@ -105,10 +110,8 @@ object BluetoothControllerAndroid: IBluetoothController {
                 BluetoothController.onDeviceDisconnect(address)
             }
         }
-        while (connections[address] == null) {
-            // 等待完成连接
-            delay(10)
-        }
+        val res = connectEventFlow.filter { it.first == address }.first().second
+        if (!res) throw Exception("连接失败")
         val clientScope = connections[address]!!
         val result = mutableListOf<BluetoothGattService>()
         clientScope.services.forEach { service ->
