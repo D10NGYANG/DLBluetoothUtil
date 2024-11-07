@@ -16,9 +16,6 @@ import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
 import platform.CoreBluetooth.CBCharacteristic
 import platform.CoreBluetooth.CBCharacteristicWriteWithoutResponse
-import platform.CoreBluetooth.CBConnectPeripheralOptionEnableAutoReconnect
-import platform.CoreBluetooth.CBConnectPeripheralOptionNotifyOnConnectionKey
-import platform.CoreBluetooth.CBConnectPeripheralOptionNotifyOnDisconnectionKey
 import platform.CoreBluetooth.CBDescriptor
 import platform.CoreBluetooth.CBPeripheral
 import platform.CoreBluetooth.CBPeripheralDelegateProtocol
@@ -237,11 +234,7 @@ object BluetoothControllerIOS: IBluetoothController {
      */
     override suspend fun connect(address: String): List<BluetoothGattService> {
         val device = scanDevices.find { it.identifier.UUIDString.contentEquals(address) }?: throw Exception("device not found")
-        centralManager.connectPeripheral(device, mapOf(
-            CBConnectPeripheralOptionNotifyOnConnectionKey to true,
-            CBConnectPeripheralOptionNotifyOnDisconnectionKey to true,
-            CBConnectPeripheralOptionEnableAutoReconnect to true
-        ))
+        centralManager.connectPeripheral(device, null)
         val event = deviceEventFlow.first()
         if (event is CBCentralManagerDidConnectEvent) {
             device.delegate = peripheralDelegate
@@ -260,8 +253,9 @@ object BluetoothControllerIOS: IBluetoothController {
             return map.map { (service, characteristics) ->
                 BluetoothGattService(service.UUID.UUIDString, characteristics.map { BluetoothGattCharacteristic(it.UUID.UUIDString, it.properties.toInt()) })
             }
+        } else {
+            throw Exception("连接失败!")
         }
-        return emptyList()
     }
 
     /**
