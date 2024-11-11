@@ -6,7 +6,6 @@ import androidx.startup.Initializer
 import com.bhm.ble.BleManager
 import com.bhm.ble.attribute.BleOptions
 import com.bhm.ble.data.BleTaskQueueType
-import com.bhm.ble.log.BleLogger
 
 /**
  * 启动初始化
@@ -24,7 +23,6 @@ internal class StartupInitializer : Initializer<Unit> {
         val options = BleOptions.builder()
             .setScanMillisTimeOut(Long.MAX_VALUE)
             .setTaskQueueType(BleTaskQueueType.Default)
-            .setMtu(500)
             .build()
         BleManager.get().init(application, options)
     }
