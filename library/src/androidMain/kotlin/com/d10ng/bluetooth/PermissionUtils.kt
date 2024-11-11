@@ -17,8 +17,6 @@ val locationPermissionArray = arrayOf(
 // 蓝牙权限
 val bluetoothPermissionArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
     arrayOf(
-        android.Manifest.permission.BLUETOOTH,
-        android.Manifest.permission.BLUETOOTH_ADMIN,
         android.Manifest.permission.BLUETOOTH_SCAN,
         android.Manifest.permission.BLUETOOTH_CONNECT
     )

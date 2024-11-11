@@ -70,7 +70,8 @@ object BluetoothControllerAndroid: IBluetoothController {
     override fun startScan() {
         stopScan()
         scanJob = scope.launch {
-            if (PermissionManager.request(locationPermissionArray).not()) throw LocationPermissionException()
+            // 如果Android API小于30，需要请求定位权限
+            if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.R && PermissionManager.request(locationPermissionArray).not()) throw LocationPermissionException()
             if (PermissionManager.request(bluetoothPermissionArray).not()) throw BluetoothPermissionException()
             if (isLocationEnabled().not()) throw LocationOffException()
             ble.scan().collect {

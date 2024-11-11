@@ -30,7 +30,6 @@ kotlin {
         }
         androidMain.dependencies {
             // Android
-            implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.activity.ktx)
             // 协程 Android
             implementation(libs.kotlinx.coroutines.android)
@@ -38,6 +37,8 @@ kotlin {
             implementation(libs.androidx.startup.runtime)
             // 蓝牙通讯
             api(libs.androidx.bluetooth)
+            // 蓝牙通讯2
+            api("com.github.buhuiming:BleCore:2.3.4")
             // APP通用工具
             implementation(libs.dl.app)
         }
