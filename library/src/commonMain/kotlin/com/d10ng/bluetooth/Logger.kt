@@ -9,4 +9,4 @@ import com.d10ng.common.log.LogIt
  */
 internal object Logger: LogIt("Bluetooth")
 
-internal expect fun setDebug(debug: Boolean)
+internal expect fun setThirdLibDebug(debug: Boolean)
