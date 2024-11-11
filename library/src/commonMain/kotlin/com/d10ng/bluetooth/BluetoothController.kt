@@ -136,7 +136,7 @@ object BluetoothController {
      * @param characteristicUuid String
      * @param enable Boolean
      */
-    fun notify(address: String, serviceUuid: String, characteristicUuid: String, enable: Boolean) {
+    suspend fun notify(address: String, serviceUuid: String, characteristicUuid: String, enable: Boolean) {
         Logger.i("打开通知：${address}，$serviceUuid，$characteristicUuid，$enable")
         controller.notify(address, serviceUuid, characteristicUuid, enable)
     }

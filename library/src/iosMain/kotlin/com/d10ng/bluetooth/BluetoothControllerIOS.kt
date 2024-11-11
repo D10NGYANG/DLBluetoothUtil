@@ -282,7 +282,7 @@ object BluetoothControllerIOS: IBluetoothController {
      * @param characteristicUuid String
      * @param enable Boolean
      */
-    override fun notify(
+    override suspend fun notify(
         address: String,
         serviceUuid: String,
         characteristicUuid: String,

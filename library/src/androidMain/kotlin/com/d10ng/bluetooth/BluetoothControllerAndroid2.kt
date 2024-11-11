@@ -17,9 +17,11 @@ import com.d10ng.app.managers.PermissionManager
 import com.d10ng.app.status.isLocationEnabled
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -155,7 +157,7 @@ object BluetoothControllerAndroid2: IBluetoothController {
         BleManager.get().disConnectAll()
     }
 
-    override fun notify(
+    override suspend fun notify(
         address: String,
         serviceUuid: String,
         characteristicUuid: String,
@@ -164,10 +166,10 @@ object BluetoothControllerAndroid2: IBluetoothController {
         val device = connectedDevices.firstOrNull { it.deviceAddress.contentEquals(address) }?: return
         if (enable) {
             BleManager.get().notify(device, serviceUuid, characteristicUuid, BleDescriptorGetType.Default, notifyCallback)
-            /*val notifyRes = runBlocking(Dispatchers.IO) { notifyCallbackEventFlow.first { it is BleNotifyCallbackOnNotifySuccess || it is BleNotifyCallbackOnNotifyFail } }
+            val notifyRes = notifyCallbackEventFlow.first { it is BleNotifyCallbackOnNotifySuccess || it is BleNotifyCallbackOnNotifyFail }
             if (notifyRes is BleNotifyCallbackOnNotifyFail) {
                 throw Exception("通知失败，错误信息:${notifyRes.throwable}")
-            }*/
+            }
             // TODO 暂时不允许失败
             notifyKeys["$address $characteristicUuid"] = "$address $serviceUuid $characteristicUuid"
         } else {

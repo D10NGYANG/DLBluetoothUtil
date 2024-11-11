@@ -124,7 +124,7 @@ fun App() {
                                         .clickable {
                                             if (characteristic.isNotifiable()) {
                                                 val enable = notifyCharacteristics.contains(characteristic)
-                                                BluetoothController.notify(connectedDevices[0].address, service.uuid, characteristic.uuid, enable.not())
+                                                scope.launch { BluetoothController.notify(connectedDevices[0].address, service.uuid, characteristic.uuid, enable.not()) }
                                                 if (enable) notifyCharacteristics.remove(characteristic) else notifyCharacteristics.add(characteristic)
                                             } else if (characteristic.isWriteable()) {
                                                 scope.launch {

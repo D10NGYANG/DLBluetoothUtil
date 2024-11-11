@@ -58,7 +58,7 @@ interface IBluetoothController {
      * @param characteristicUuid String
      * @param enable Boolean
      */
-    fun notify(address: String, serviceUuid: String, characteristicUuid: String, enable: Boolean)
+    suspend fun notify(address: String, serviceUuid: String, characteristicUuid: String, enable: Boolean)
 
     /**
      * 写入数据
