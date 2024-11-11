@@ -23,6 +23,9 @@ internal class StartupInitializer : Initializer<Unit> {
         val options = BleOptions.builder()
             .setScanMillisTimeOut(Long.MAX_VALUE)
             .setTaskQueueType(BleTaskQueueType.Default)
+            .setOperateMillisTimeOut(6000)
+            .setOperateInterval(120)
+            .setMtu(500, true)
             .build()
         BleManager.get().init(application, options)
     }
