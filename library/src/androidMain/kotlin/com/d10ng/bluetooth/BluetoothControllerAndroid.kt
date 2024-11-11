@@ -93,8 +93,8 @@ object BluetoothControllerAndroid: IBluetoothController {
             ble.connectGatt(item.device) {
                 connections[address] = this
                 ble.client.fwkAdapter.fwkBluetoothGatt?.let { gatt ->
-                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                    Logger.i("完成连接属性设置 BluetoothGatt.CONNECTION_PRIORITY_HIGH")
+                    //gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                    //Logger.i("完成连接属性设置 BluetoothGatt.CONNECTION_PRIORITY_HIGH")
                 }
                 connectEventFlow.emit(address to true)
                 awaitCancellation()
