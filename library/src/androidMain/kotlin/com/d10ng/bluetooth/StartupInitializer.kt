@@ -3,9 +3,7 @@ package com.d10ng.bluetooth
 import android.app.Application
 import android.content.Context
 import androidx.startup.Initializer
-import com.bhm.ble.BleManager
-import com.bhm.ble.attribute.BleOptions
-import com.bhm.ble.data.BleTaskQueueType
+import com.clj.fastble.BleManager
 import com.clj.fastble.scan.BleScanRuleConfig
 
 /**
@@ -21,20 +19,12 @@ internal class StartupInitializer : Initializer<Unit> {
 
     override fun create(context: Context) {
         application = context as Application
-        val options = BleOptions.builder()
-            .setScanMillisTimeOut(Long.MAX_VALUE)
-            //.setTaskQueueType(BleTaskQueueType.Operate)
-            //.setOperateMillisTimeOut(6000)
-            //.setOperateInterval(60)
-            .setMtu(500, true)
-            .build()
-        //BleManager.get().init(application, options)
 
         // 蓝牙库初始化
-        com.clj.fastble.BleManager.getInstance().init(application)
+        BleManager.getInstance().init(application)
 
         // 全局配置
-        com.clj.fastble.BleManager.getInstance()
+        BleManager.getInstance()
             // 是否允许打印数据
             .enableLog(true)
             // 设置连接时重连次数和重连间隔（毫秒），默认为0次不重连
@@ -58,7 +48,7 @@ internal class StartupInitializer : Initializer<Unit> {
             // 扫描超时时间，可选，默认7秒；小于等于0表示不限制扫描时间
             .setScanTimeOut(0)
             .build()
-        com.clj.fastble.BleManager.getInstance().initScanRule(scanRuleConfig)
+        BleManager.getInstance().initScanRule(scanRuleConfig)
     }
 
     override fun dependencies(): MutableList<Class<out Initializer<*>>> {

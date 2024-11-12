@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.github.D10NGYANG"
-version = "0.1.30"
+version = "0.2.0"
 
 kotlin {
     jvmToolchain(8)
@@ -37,10 +37,6 @@ kotlin {
             // startup
             implementation(libs.androidx.startup.runtime)
             // 蓝牙通讯
-            api(libs.androidx.bluetooth)
-            // 蓝牙通讯2
-            api("com.github.buhuiming:BleCore:2.3.5")
-            // 蓝牙通讯3
             api(files("libs/FastBLE-2.3.4.jar"))
             // APP通用工具
             implementation(libs.dl.app)
