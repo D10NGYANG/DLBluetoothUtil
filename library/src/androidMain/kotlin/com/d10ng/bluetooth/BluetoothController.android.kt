@@ -5,5 +5,5 @@ package com.d10ng.bluetooth
  * @return IBluetoothController
  */
 actual fun getBluetoothController(): IBluetoothController {
-    return BluetoothControllerAndroid2
+    return BluetoothControllerAndroid3
 }

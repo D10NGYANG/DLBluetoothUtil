@@ -36,7 +36,6 @@ object BluetoothControllerAndroid2: IBluetoothController {
     private val bluetoothAdapter by lazy { bluetoothManager?.adapter }
     private val scope by lazy { CoroutineScope(Dispatchers.IO) }
 
-    private val scanResults = mutableListOf<BleDevice>()
     private val connectEventFlow = MutableSharedFlow<BleConnectCallbackEvent>()
     private val connectedDevices = mutableListOf<BleDevice>()
     private val notifyCallbackEventFlow = MutableSharedFlow<BleNotifyCallbackEvent>()
@@ -109,11 +108,12 @@ object BluetoothControllerAndroid2: IBluetoothController {
             if (PermissionManager.request(bluetoothPermissionArray).not()) throw BluetoothPermissionException()
             if (isLocationEnabled().not()) throw LocationOffException()
             BleManager.get().startScan {
-                onLeScanDuplicateRemoval { bleDevice, _ ->
+                onLeScan { bleDevice, _ ->
+                    bleDevice.deviceAddress?:return@onLeScan
                     runCatching {
-                        scanResults.removeAll { item -> item.deviceAddress.contentEquals(bleDevice.deviceAddress) }
-                        scanResults.add(bleDevice)
                         BluetoothController.onDeviceScan(BluetoothDevice(bleDevice.deviceName, bleDevice.deviceAddress!!, bleDevice.rssi!!))
+                    }.onFailure {
+                        it.printStackTrace()
                     }
                 }
             }
