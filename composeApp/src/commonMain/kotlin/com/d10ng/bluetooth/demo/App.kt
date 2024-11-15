@@ -55,6 +55,7 @@ fun App() {
                     BluetoothController.notifyDataFlow.collect {
                         val (_, data) = it
                         notifyContent = data.decodeToString()
+                        println("notifyContent = $notifyContent")
                     }
                 }
             }

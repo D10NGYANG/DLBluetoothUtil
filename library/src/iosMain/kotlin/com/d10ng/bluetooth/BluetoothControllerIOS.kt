@@ -10,7 +10,6 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
@@ -57,9 +56,7 @@ object BluetoothControllerIOS: IBluetoothController {
             Logger.i("didConnectPeripheral: ${didConnectPeripheral.name()} ${didConnectPeripheral.identifier.UUIDString}")
             val mtu = didConnectPeripheral.maximumWriteValueLengthForType(CBCharacteristicWriteWithoutResponse)
             Logger.i("mtu: $mtu")
-            scope.launch {
-                deviceEventFlow.emit(CBCentralManagerDidConnectEvent(didConnectPeripheral))
-            }
+            deviceEventFlow.tryEmit(CBCentralManagerDidConnectEvent(didConnectPeripheral))
         }
 
         override fun centralManager(
@@ -68,9 +65,7 @@ object BluetoothControllerIOS: IBluetoothController {
             error: NSError?
         ) {
             Logger.i("didFailToConnectPeripheral: ${didFailToConnectPeripheral.name()} ${didFailToConnectPeripheral.identifier.UUIDString}")
-            scope.launch {
-                deviceEventFlow.emit(CBCentralManagerDidFailToConnectEvent(didFailToConnectPeripheral, error))
-            }
+            deviceEventFlow.tryEmit(CBCentralManagerDidFailToConnectEvent(didFailToConnectPeripheral, error))
         }
 
         override fun centralManager(
@@ -84,7 +79,7 @@ object BluetoothControllerIOS: IBluetoothController {
             Logger.i("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} $deviceUUID, $error")
             // 清理资源
             disconnect(deviceUUID)
-            scope.launch { deviceEventFlow.emit(CBCentralManagerDidDisconnectEvent(didDisconnectPeripheral, timestamp, isReconnecting, error)) }
+            deviceEventFlow.tryEmit(CBCentralManagerDidDisconnectEvent(didDisconnectPeripheral, timestamp, isReconnecting, error))
             BluetoothController.onDeviceDisconnect(deviceUUID)
         }
     }
@@ -96,8 +91,8 @@ object BluetoothControllerIOS: IBluetoothController {
     // 已连接设备
     private val connectedDevices = mutableMapOf<CBPeripheral, Map<CBService, List<CBCharacteristic>>>()
     // 设备事件
-    private val deviceEventFlow = MutableSharedFlow<CBCentralManagerEvent>()
-    private val peripheralEventFlow = MutableSharedFlow<CBPeripheralEvent>()
+    private val deviceEventFlow = MutableSharedFlow<CBCentralManagerEvent>(extraBufferCapacity = 1024)
+    private val peripheralEventFlow = MutableSharedFlow<CBPeripheralEvent>(extraBufferCapacity = 1024)
 
     private val peripheralDelegate = object : NSObject(), CBPeripheralDelegateProtocol {
         override fun peripheralDidUpdateName(peripheral: CBPeripheral) {
@@ -105,19 +100,17 @@ object BluetoothControllerIOS: IBluetoothController {
         }
 
         override fun peripheral(peripheral: CBPeripheral, didDiscoverServices: NSError?) {
-            scope.launch {
-                if (didDiscoverServices != null) {
-                    Logger.i("Error with service discovery $didDiscoverServices")
-                    peripheralEventFlow.emit(CBPeripheralDidDiscoverServicesEvent(null))
-                    return@launch
-                }
-                val ls = peripheral.services?.mapNotNull { it as? CBService }
-                if (ls.isNullOrEmpty()) {
-                    peripheralEventFlow.emit(CBPeripheralDidDiscoverServicesEvent(emptyList()))
-                    return@launch
-                }
-                peripheralEventFlow.emit(CBPeripheralDidDiscoverServicesEvent(ls))
+            if (didDiscoverServices != null) {
+                Logger.i("Error with service discovery $didDiscoverServices")
+                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverServicesEvent(null))
+                return
             }
+            val ls = peripheral.services?.mapNotNull { it as? CBService }
+            if (ls.isNullOrEmpty()) {
+                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverServicesEvent(emptyList()))
+                return
+            }
+            peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverServicesEvent(ls))
         }
 
         override fun peripheral(
@@ -125,20 +118,18 @@ object BluetoothControllerIOS: IBluetoothController {
             didDiscoverCharacteristicsForService: CBService,
             error: NSError?
         ) {
-            scope.launch {
-                if (error != null) {
-                    Logger.i("Error discovering characteristics: $error")
-                    peripheralEventFlow.emit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, null))
-                    return@launch
-                }
-                val ls = didDiscoverCharacteristicsForService.characteristics
-                    ?.mapNotNull { it as? CBCharacteristic }
-                if (ls.isNullOrEmpty()) {
-                    peripheralEventFlow.emit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, emptyList()))
-                    return@launch
-                }
-                peripheralEventFlow.emit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, ls))
+            if (error != null) {
+                Logger.i("Error discovering characteristics: $error")
+                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, null))
+                return
             }
+            val ls = didDiscoverCharacteristicsForService.characteristics
+                ?.mapNotNull { it as? CBCharacteristic }
+            if (ls.isNullOrEmpty()) {
+                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, emptyList()))
+                return
+            }
+            peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, ls))
         }
 
         @ObjCSignatureOverride
@@ -151,11 +142,9 @@ object BluetoothControllerIOS: IBluetoothController {
                 Logger.i("Error update value for characteristics: $error")
             }
             val data = didUpdateValueForCharacteristic.value?.toByteArray()?: return
-            scope.launch {
-                val curKey = peripheral.identifier.UUIDString + " " + didUpdateValueForCharacteristic.service!!.UUID.UUIDString + " " + didUpdateValueForCharacteristic.UUID.UUIDString
-                //Logger.i("收到通知，${curKey}：${data.toHexString()}")
-                BluetoothController.notifyDataFlow.emit(curKey to data)
-            }
+            val curKey = peripheral.identifier.UUIDString + " " + didUpdateValueForCharacteristic.service!!.UUID.UUIDString + " " + didUpdateValueForCharacteristic.UUID.UUIDString
+            //Logger.i("收到通知，${curKey}：${data.toHexString()}")
+            BluetoothController.notifyDataFlow.tryEmit(curKey to data)
         }
 
         @ObjCSignatureOverride
@@ -168,9 +157,7 @@ object BluetoothControllerIOS: IBluetoothController {
             if (error != null) {
                 Logger.i("Error write value for characteristics: $error")
             }
-            scope.launch {
-                peripheralEventFlow.emit(CBPeripheralDidWriteValueForCharacteristicEvent(error == null))
-            }
+            peripheralEventFlow.tryEmit(CBPeripheralDidWriteValueForCharacteristicEvent(error == null))
         }
 
         override fun peripheral(
@@ -183,9 +170,7 @@ object BluetoothControllerIOS: IBluetoothController {
 
         override fun peripheralIsReadyToSendWriteWithoutResponse(peripheral: CBPeripheral) {
             Logger.i("peripheralIsReadyToSendWriteWithoutResponse")
-            scope.launch {
-                peripheralEventFlow.emit(CBPeripheralIsReadyToSendWriteWithoutResponseEvent())
-            }
+            peripheralEventFlow.tryEmit(CBPeripheralIsReadyToSendWriteWithoutResponseEvent())
         }
     }
 
@@ -325,5 +310,4 @@ object BluetoothControllerIOS: IBluetoothController {
         val event = withTimeoutOrNull(500) { peripheralEventFlow.first { it is CBPeripheralIsReadyToSendWriteWithoutResponseEvent } as CBPeripheralIsReadyToSendWriteWithoutResponseEvent }
         if (event == null) throw Exception("write error")
     }
-
 }

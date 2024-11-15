@@ -216,8 +216,7 @@ internal class BleNotifyCallbackEventOnCharacteristicChanged(val key: String, va
 internal object BleNotifyCallbackManager {
 
     private val map = mutableMapOf<String, BleNotifyCallbackData>()
-    private val scope = CoroutineScope(Dispatchers.Default)
-    val eventFlow = MutableSharedFlow<BleNotifyCallbackDataEvent>()
+    val eventFlow = MutableSharedFlow<BleNotifyCallbackDataEvent>(extraBufferCapacity = 1024)
 
     fun getCallback(key: String): BleNotifyCallback {
         val callback = map[key]?: BleNotifyCallbackData(key)
@@ -226,12 +225,7 @@ internal object BleNotifyCallbackManager {
     }
 
     fun emitEvent(event: BleNotifyCallbackDataEvent) {
-        scope.launch {
-            eventFlow.emit(event)
-            if (event is BleNotifyCallbackEventOnCharacteristicChanged) {
-                BluetoothController.notifyDataFlow.emit( event.key to event.data)
-            }
-        }
+        eventFlow.tryEmit(event)
     }
 }
 
@@ -252,6 +246,7 @@ internal class BleNotifyCallbackData(
         override fun onCharacteristicChanged(p0: ByteArray?) {
             p0?: return
             BleNotifyCallbackManager.emitEvent(BleNotifyCallbackEventOnCharacteristicChanged(key, p0))
+            BluetoothController.notifyDataFlow.tryEmit( key to p0)
         }
     }
 }
