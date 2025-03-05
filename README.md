@@ -1,14 +1,11 @@
-This is a Kotlin Multiplatform project targeting Android, iOS.
+# DLBluetoothUtil
 
-* `/composeApp` is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - `commonMain` is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    `iosMain` would be the right folder for such calls.
+一个基于Kotlin Multiplatform的跨平台蓝牙工具库，支持Android和iOS平台。
 
-* `/iosApp` contains iOS applications. Even if you’re sharing your UI with Compose Multiplatform, 
-  you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
+## 功能特点
 
-
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+- 支持Android和iOS双平台
+- 基于Kotlin Multiplatform开发
+- Android端集成FastBLE库
+- 提供统一的蓝牙操作接口
+- 支持BLE设备扫描、连接和数据传输
