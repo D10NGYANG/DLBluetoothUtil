@@ -30,5 +30,5 @@ dependencyResolutionManagement {
     }
 }
 
-include(":composeApp", ":library")
+include(":androidApp", ":composeApp", ":library")
 project(":library").name = "DLBluetoothUtil"

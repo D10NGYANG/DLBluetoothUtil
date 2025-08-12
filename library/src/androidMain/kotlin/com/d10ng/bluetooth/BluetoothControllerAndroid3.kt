@@ -19,6 +19,7 @@ import com.d10ng.app.status.isLocationEnabled
 import com.d10ng.common.base.toHexString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -35,7 +36,7 @@ object BluetoothControllerAndroid3: IBluetoothController {
 
     private val bluetoothManager by lazy { ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager? }
     private val bluetoothAdapter by lazy { bluetoothManager?.adapter }
-    private val scope by lazy { CoroutineScope(Dispatchers.Default) }
+    private val scope by lazy { CoroutineScope(Dispatchers.Default + SupervisorJob()) }
 
     private val connectEvent = MutableSharedFlow<BleGattCallbackEvent>()
     private val connectedDevices = mutableListOf<BleDevice>()
