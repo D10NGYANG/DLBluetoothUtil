@@ -21,9 +21,11 @@ import com.d10ng.app.status.isLocationEnabled
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
 /**
@@ -31,9 +33,16 @@ import java.util.UUID
  * @Author d10ng
  * @Date 2025/8/12 11:33
  */
-object BluetoothControllerAndroid: IBluetoothController {
+@SuppressLint("MissingPermission")
+object BluetoothControllerAndroid : IBluetoothController {
 
     private val scope by lazy { CoroutineScope(Dispatchers.Default + SupervisorJob()) }
+
+    // 操作任务队列
+    private val operationQueueChannel = Channel<OperationType>(capacity = Channel.UNLIMITED)
+
+    // 操作结果
+    private val operationResultFlow = MutableSharedFlow<OperationResult>(extraBufferCapacity = Int.MAX_VALUE)
 
     private val bluetoothManager by lazy { ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager? }
     private val bluetoothAdapter by lazy { bluetoothManager?.adapter }
@@ -49,10 +58,9 @@ object BluetoothControllerAndroid: IBluetoothController {
 
     private val scanResults = mutableListOf<ScanResult>()
 
-    @SuppressLint("MissingPermission")
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            Logger.d("[ScanCallback.onScanResult] callbackType: $callbackType, onScanResult: $result")
+            Logger.d("[ScanCallback.onScanResult] callbackType: $callbackType, result: $result")
             val indexQuery = scanResults.indexOfFirst { it.device.address == result.device.address }
             if (indexQuery != -1) { // A scan result already exists with the same address
                 scanResults[indexQuery] = result
@@ -69,20 +77,20 @@ object BluetoothControllerAndroid: IBluetoothController {
 
     private val gattMap = mutableMapOf<String, BluetoothGatt>()
 
-    private val gattEventFlow = MutableSharedFlow<BluetoothGattEvent>(extraBufferCapacity = 1024)
+    private val gattEventFlow = MutableSharedFlow<BluetoothGattEvent>(extraBufferCapacity = Int.MAX_VALUE)
 
     private val gattCallBack = object : BluetoothGattCallback() {
-        @SuppressLint("MissingPermission")
+
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
-            gatt?: return
-            Logger.d("[BluetoothGattCallback.onConnectionStateChange] gatt: $gatt, status: $status, newState: $newState")
+            gatt ?: return
+            Logger.d("[BluetoothGattCallback.onConnectionStateChange] device: ${gatt.device.name}, status: $status, newState: $newState")
             gattEventFlow.tryEmit(BluetoothGattOnConnectionStateChangeEvent(gatt, status, newState))
             if (newState == BluetoothProfile.STATE_DISCONNECTED) disconnect(gatt.device.address)
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
-            gatt?: return
-            Logger.d("[BluetoothGattCallback.onServicesDiscovered] gatt: $gatt, status: $status")
+            gatt ?: return
+            Logger.d("[BluetoothGattCallback.onServicesDiscovered] device: ${gatt.device.name}, status: $status")
             gattEventFlow.tryEmit(BluetoothGattOnServicesDiscoveredEvent(gatt, status))
         }
 
@@ -91,9 +99,9 @@ object BluetoothControllerAndroid: IBluetoothController {
             characteristic: BluetoothGattCharacteristic?,
             status: Int
         ) {
-            gatt?: return
-            characteristic?: return
-            Logger.d("[BluetoothGattCallback.onCharacteristicWrite] gatt: $gatt, characteristic: ${characteristic.uuid}, status: $status")
+            gatt ?: return
+            characteristic ?: return
+            Logger.d("[BluetoothGattCallback.onCharacteristicWrite] device: ${gatt.device.name}, characteristic: ${characteristic.uuid}, status: $status")
             gattEventFlow.tryEmit(BluetoothGattOnCharacteristicWriteEvent(gatt, characteristic, status))
         }
 
@@ -102,9 +110,9 @@ object BluetoothControllerAndroid: IBluetoothController {
             descriptor: BluetoothGattDescriptor?,
             status: Int
         ) {
-            gatt?: return
-            descriptor?: return
-            Logger.d("[BluetoothGattCallback.onDescriptorWrite] gatt: $gatt, descriptor: ${descriptor.uuid}, status: $status")
+            gatt ?: return
+            descriptor ?: return
+            Logger.d("[BluetoothGattCallback.onDescriptorWrite] device: ${gatt.device.name}, descriptor: ${descriptor.uuid}, status: $status")
             gattEventFlow.tryEmit(BluetoothGattOnDescriptorWriteEvent(gatt, descriptor, status))
         }
 
@@ -113,10 +121,10 @@ object BluetoothControllerAndroid: IBluetoothController {
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray
         ) {
-            Logger.d("[BluetoothGattCallback.onCharacteristicChanged] gatt: $gatt, characteristic: ${characteristic.uuid}, value: ${value.toHexString(HexFormat.UpperCase)}")
+            Logger.d("[BluetoothGattCallback.onCharacteristicChanged] device: ${gatt.device.name}, characteristic: ${characteristic.uuid}, value: ${value.toHexString(HexFormat.UpperCase)}")
             gattEventFlow.tryEmit(BluetoothGattOnCharacteristicChangedEvent(gatt, characteristic, value))
             val key = "${gatt.device.address} ${characteristic.service.uuid} ${characteristic.uuid}"
-            BluetoothController.notifyDataFlow.tryEmit( key to value)
+            BluetoothController.notifyDataFlow.tryEmit(key to value)
         }
 
         @Deprecated("Deprecated for Android 13+")
@@ -125,18 +133,195 @@ object BluetoothControllerAndroid: IBluetoothController {
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic?
         ) {
-            gatt?: return
-            characteristic?: return
-            Logger.d("[BluetoothGattCallback.onCharacteristicChanged] gatt: $gatt, characteristic: ${characteristic.uuid}, value: ${characteristic.value.toHexString(HexFormat.UpperCase)}")
+            gatt ?: return
+            characteristic ?: return
+            Logger.d("[BluetoothGattCallback.onCharacteristicChanged] device: ${gatt.device.name}, characteristic: ${characteristic.uuid}, value: ${characteristic.value.toHexString(HexFormat.UpperCase)}")
             gattEventFlow.tryEmit(BluetoothGattOnCharacteristicChangedEvent(gatt, characteristic, characteristic.value))
             val key = "${gatt.device.address} ${characteristic.service.uuid} ${characteristic.uuid}"
-            BluetoothController.notifyDataFlow.tryEmit( key to characteristic.value)
+            BluetoothController.notifyDataFlow.tryEmit(key to characteristic.value)
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
-            gatt?: return
-            Logger.d("[BluetoothGattCallback.onMtuChanged] gatt: $gatt, mtu: $mtu, status: $status")
+            gatt ?: return
+            Logger.d("[BluetoothGattCallback.onMtuChanged] device: ${gatt.device.name}, mtu: $mtu, status: $status")
             gattEventFlow.tryEmit(BluetoothGattOnMtuChangedEvent(gatt, mtu, status))
+        }
+    }
+
+    init {
+        scope.launch {
+            // 监听操作队列，串列执行
+            for (operation in operationQueueChannel) {
+                when (operation) {
+                    is OperationTypeConnect -> {
+                        // 连接设备
+                        val device = scanResults.firstOrNull {
+                            it.device.address.contentEquals(operation.address, true)
+                        }?.device
+                        if (device == null) {
+                            Logger.w("[OperationTypeConnect] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        device.connectGatt(ctx, false, gattCallBack)
+                        val connectEvent = awaitFirstEvent<BluetoothGattOnConnectionStateChangeEvent>(operation.address, 5000L)
+                        if (connectEvent == null || connectEvent.status != BluetoothGatt.GATT_SUCCESS) {
+                            Logger.w("[OperationTypeConnect] fail 连接失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        Logger.d("[OperationTypeConnect] success 连接成功")
+                        gattMap[operation.address] = connectEvent.gatt
+                        operationResultFlow.tryEmit(operation.success())
+                    }
+
+                    is OperationTypeDiscoverServices -> {
+                        // 获取服务
+                        val gatt = gattMap[operation.address]
+                        if (gatt == null) {
+                            Logger.w("[OperationTypeDiscoverServices] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        if (!gatt.discoverServices()) {
+                            Logger.w("[OperationTypeDiscoverServices] fail 获取服务失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val discoverServicesEvent = awaitFirstEvent<BluetoothGattOnServicesDiscoveredEvent>(operation.address, 3000L)
+                        if (discoverServicesEvent == null || discoverServicesEvent.status != BluetoothGatt.GATT_SUCCESS) {
+                            Logger.w("[OperationTypeDiscoverServices] fail 获取服务失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val list = mutableListOf<BluetoothGattService>()
+                        discoverServicesEvent.gatt.let { gatt ->
+                            gatt.services.forEach { serviceUuid ->
+                                gatt.getService(serviceUuid.uuid)?.let { service ->
+                                    val serviceItem = BluetoothGattService(
+                                        service.uuid.toString().uppercase(),
+                                        service.characteristics.map { characteristic ->
+                                            BluetoothGattCharacteristic(
+                                                characteristic.uuid.toString().uppercase(),
+                                                characteristic.properties
+                                            )
+                                        }
+                                    )
+                                    list.add(serviceItem)
+                                }
+                            }
+                        }
+                        Logger.d("[OperationTypeDiscoverServices] success 获取服务成功")
+                        gattMap[operation.address] = discoverServicesEvent.gatt
+                        operationResultFlow.tryEmit(operation.success(list))
+                    }
+
+                    is OperationTypeMtuChanged -> {
+                        // 获取 MTU
+                        val gatt = gattMap[operation.address]
+                        if (gatt == null) {
+                            Logger.w("[OperationTypeMtuChanged] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        if (!gatt.requestMtu(operation.mtu.coerceIn(GATT_MIN_MTU_SIZE, GATT_MAX_MTU_SIZE))) {
+                            Logger.w("[OperationTypeMtuChanged] fail 设置MTU失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val mtuChangedEvent = awaitFirstEvent<BluetoothGattOnMtuChangedEvent>(operation.address, 1000L)
+                        if (mtuChangedEvent == null || mtuChangedEvent.status != BluetoothGatt.GATT_SUCCESS) {
+                            Logger.w("[OperationTypeMtuChanged] fail 设置MTU失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        Logger.d("[OperationTypeMtuChanged] success 设置MTU成功")
+                        operationResultFlow.tryEmit(operation.success(mtuChangedEvent.mtu))
+                    }
+
+                    is OperationTypeNotify -> {
+                        // 开关通知
+                        val gatt = gattMap[operation.address]
+                        if (gatt == null) {
+                            Logger.w("[OperationTypeNotify] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val characteristic = gatt.findCharacteristic(UUID.fromString(operation.characteristicUuid), UUID.fromString(operation.serviceUuid))
+                        if (characteristic == null) {
+                            Logger.w("[OperationTypeNotify] fail 未找到特征")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        if (!characteristic.isNotifiable()) {
+                            Logger.w("[OperationTypeNotify] fail 特征不支持通知")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val descriptor = characteristic.getDescriptor(UUID.fromString(CCC_DESCRIPTOR_UUID))
+                        if (descriptor == null) {
+                            Logger.w("[OperationTypeNotify] fail 未找到描述符")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        if (!gatt.setCharacteristicNotification(characteristic, operation.enable)) {
+                            Logger.w("[OperationTypeNotify] fail 设置通知失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val value = if (operation.enable)
+                            BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        else
+                            BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+                        descriptor.executeWrite(gatt, value)
+                        val descriptorWriteEvent = awaitFirstEvent<BluetoothGattOnDescriptorWriteEvent>(operation.address, 1000L) {
+                            it.descriptor.uuid == descriptor.uuid
+                        }
+                        if (descriptorWriteEvent == null || descriptorWriteEvent.status != BluetoothGatt.GATT_SUCCESS) {
+                            Logger.w("[OperationTypeNotify] fail 设置通知失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        Logger.d("[OperationTypeNotify] success 设置通知成功")
+                        operationResultFlow.tryEmit(operation.success())
+                    }
+
+                    is OperationTypeWrite -> {
+                        val gatt = gattMap[operation.address]
+                        if (gatt == null) {
+                            Logger.w("[OperationTypeWrite] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val characteristic = gatt.findCharacteristic(UUID.fromString(operation.characteristicUuid), UUID.fromString(operation.serviceUuid))
+                        if (characteristic == null) {
+                            Logger.w("[OperationTypeWrite] fail 未找到特征")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val writeType = when {
+                            characteristic.isWritable() -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                            characteristic.isWritableWithoutResponse() -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                            else -> {
+                                Logger.w("[OperationTypeWrite] fail 特征不支持写入")
+                                operationResultFlow.tryEmit(operation.fail())
+                                continue
+                            }
+                        }
+                        characteristic.executeWrite(gatt, operation.value, writeType)
+                        val characteristicWriteEvent = awaitFirstEvent<BluetoothGattOnCharacteristicWriteEvent>(operation.address, 2000L) {
+                            it.characteristic.uuid == characteristic.uuid
+                        }
+                        if (characteristicWriteEvent == null || characteristicWriteEvent.status != BluetoothGatt.GATT_SUCCESS) {
+                            Logger.w("[OperationTypeWrite] fail 写入特征失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        Logger.d("[OperationTypeWrite] success 写入特征成功")
+                        operationResultFlow.tryEmit(operation.success())
+                    }
+                }
+            }
         }
     }
 
@@ -164,62 +349,42 @@ object BluetoothControllerAndroid: IBluetoothController {
         ActivityManager.startActivityForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
     }
 
-    @SuppressLint("MissingPermission")
     override fun startScan() {
         scope.launch {
             // 如果Android API小于30，需要请求定位权限
             val isAndroidOver30 = Build.VERSION.SDK_INT > Build.VERSION_CODES.R
-            if (isAndroidOver30.not() && PermissionManager.request(locationPermissionArray).not()) throw Exception("missing location permission")
+            if (isAndroidOver30.not() && PermissionManager.request(locationPermissionArray)
+                    .not()
+            ) throw Exception("missing location permission")
             if (isAndroidOver30.not() && isLocationEnabled().not()) throw Exception("location off")
-            if (PermissionManager.request(bluetoothPermissionArray).not()) throw Exception("missing bluetooth permission")
+            if (PermissionManager.request(bluetoothPermissionArray)
+                    .not()
+            ) throw Exception("missing bluetooth permission")
             scanResults.clear()
             bluetoothScanner?.startScan(null, scanSettings, scanCallback)
         }
     }
 
-    @SuppressLint("MissingPermission")
     override fun stopScan() {
         bluetoothScanner?.stopScan(scanCallback)
     }
 
-    @SuppressLint("MissingPermission")
     override suspend fun connect(address: String): List<BluetoothGattService> {
-        val device = scanResults.firstOrNull { it.device.address.contentEquals(address, true) }?.device ?: throw Exception("device not found")
-        device.connectGatt(ctx, false, gattCallBack)
-        val connectRes = gattEventFlow.first {
-            it is BluetoothGattOnConnectionStateChangeEvent && it.gatt.device.address.contentEquals(address, true)
-        } as BluetoothGattOnConnectionStateChangeEvent
-        if (connectRes.status != BluetoothGatt.GATT_SUCCESS) {
-            throw Exception("connect failed")
-        }
-        connectRes.gatt.requestMtu(GATT_MAX_MTU_SIZE)
-        gattEventFlow.first {
-            it is BluetoothGattOnMtuChangedEvent && it.gatt.device.address.contentEquals(address, true)
-        }
-        connectRes.gatt.discoverServices()
-        val discoveredEvent = gattEventFlow.first {
-            it is BluetoothGattOnServicesDiscoveredEvent && it.gatt.device.address.contentEquals(address, true)
-        } as BluetoothGattOnServicesDiscoveredEvent
-        if (discoveredEvent.status != BluetoothGatt.GATT_SUCCESS) {
-            discoveredEvent.gatt.close()
-            throw Exception("discover services failed")
-        }
-        discoveredEvent.gatt.let { gatt ->
-            val list = mutableListOf<BluetoothGattService>()
-            gatt.services.forEach { serviceUuid ->
-                gatt.getService(serviceUuid.uuid)?.let { service ->
-                    val serviceItem = BluetoothGattService(service.uuid.toString().uppercase(), service.characteristics.map { characteristic ->
-                        BluetoothGattCharacteristic(characteristic.uuid.toString().uppercase(), characteristic.properties)
-                    })
-                    list.add(serviceItem)
-                }
-            }
-            gattMap[address] = gatt
-            return list
-        }
+        // 提交连接任务
+        operationQueueChannel.send(OperationTypeConnect(address))
+        val connectResult = awaitFirstOperationResult<OperationResultConnect>(address)
+        if (connectResult.result.not()) throw Exception("connect failed")
+        // 提交设置MTU任务
+        operationQueueChannel.send(OperationTypeMtuChanged(address, GATT_MAX_MTU_SIZE))
+        val mtuChangedResult = awaitFirstOperationResult<OperationResultMtuChanged>(address)
+        Logger.i("set mtu to ${mtuChangedResult.mtu} ${if (mtuChangedResult.result) "success" else "fail"}")
+        // 提交获取服务任务
+        operationQueueChannel.send(OperationTypeDiscoverServices(address))
+        val discoverServicesResult = awaitFirstOperationResult<OperationResultDiscoverServices>(address)
+        if (discoverServicesResult.services.isEmpty()) throw Exception("discover services failed")
+        return discoverServicesResult.services
     }
 
-    @SuppressLint("MissingPermission")
     override fun disconnect(address: String) {
         gattMap[address]?.close()
         gattMap.remove(address)
@@ -230,26 +395,16 @@ object BluetoothControllerAndroid: IBluetoothController {
         gattMap.keys.forEach { disconnect(it) }
     }
 
-    @SuppressLint("MissingPermission")
     override suspend fun notify(
         address: String,
         serviceUuid: String,
         characteristicUuid: String,
         enable: Boolean
     ) {
-        val gatt = gattMap[address] ?: throw Exception("device not connected")
-        gatt.findCharacteristic(UUID.fromString(characteristicUuid), UUID.fromString(serviceUuid))?.let { characteristic ->
-            val descriptor = characteristic.getDescriptor(UUID.fromString(CCC_DESCRIPTOR_UUID))
-            if (descriptor == null) throw Exception("getDescriptor failed")
-            if (gatt.setCharacteristicNotification(characteristic, enable).not()) throw Exception("setCharacteristicNotification failed")
-            descriptor.executeWrite(gatt, if (enable) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)
-            val notifyRes = gattEventFlow.first {
-                it is BluetoothGattOnDescriptorWriteEvent
-                        && it.gatt.device.address.contentEquals(address, true)
-                        && it.descriptor.uuid == descriptor.uuid
-            } as BluetoothGattOnDescriptorWriteEvent
-            if (notifyRes.status != BluetoothGatt.GATT_SUCCESS) throw Exception("notify failed")
-        }?: throw Exception("findCharacteristic failed")
+        // 提交开关通知任务
+        operationQueueChannel.send(OperationTypeNotify(address, serviceUuid, characteristicUuid, enable))
+        val notifyResult = awaitFirstOperationResult<OperationResultNotify>(address)
+        if (notifyResult.result.not()) throw Exception("notify failed")
     }
 
     override suspend fun write(
@@ -258,120 +413,30 @@ object BluetoothControllerAndroid: IBluetoothController {
         characteristicUuid: String,
         value: ByteArray
     ) {
-        val gatt = gattMap[address] ?: throw Exception("device not connected")
-        gatt.findCharacteristic(UUID.fromString(characteristicUuid), UUID.fromString(serviceUuid))?.let { characteristic ->
-            val writeType = when {
-                characteristic.isWritable() -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                characteristic.isWritableWithoutResponse() -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                else -> throw Exception("Characteristic ${characteristic.uuid} cannot be written to")
-            }
-            characteristic.executeWrite(gatt, value, writeType)
-            val writeRes = gattEventFlow.first {
-                it is BluetoothGattOnCharacteristicWriteEvent
-                        && it.gatt.device.address.contentEquals(address, true)
-                        && it.characteristic.uuid.toString().contentEquals(characteristicUuid, true)
-            } as BluetoothGattOnCharacteristicWriteEvent
-            if (writeRes.status != BluetoothGatt.GATT_SUCCESS) {
-                throw Exception("write failed, status: ${writeRes.status}")
-            }
-        }?: throw Exception("Characteristic not found")
+        // 提交写入任务
+        operationQueueChannel.send(OperationTypeWrite(address, serviceUuid, characteristicUuid, value))
+        val writeResult = awaitFirstOperationResult<OperationResultWrite>(address)
+        if (writeResult.result.not()) throw Exception("write failed")
     }
-}
 
-internal interface BluetoothGattEvent {}
-internal data class BluetoothGattOnConnectionStateChangeEvent(val gatt: BluetoothGatt, val status: Int, val newState: Int): BluetoothGattEvent
-internal data class BluetoothGattOnServicesDiscoveredEvent(val gatt: BluetoothGatt, val status: Int): BluetoothGattEvent
-internal data class BluetoothGattOnCharacteristicWriteEvent(val gatt: BluetoothGatt, val characteristic: BluetoothGattCharacteristic, val status: Int): BluetoothGattEvent
-internal data class BluetoothGattOnDescriptorWriteEvent(val gatt: BluetoothGatt, val descriptor: BluetoothGattDescriptor, val status: Int): BluetoothGattEvent
-internal class BluetoothGattOnCharacteristicChangedEvent(val gatt: BluetoothGatt, val characteristic: BluetoothGattCharacteristic, val value: ByteArray): BluetoothGattEvent
-internal data class BluetoothGattOnMtuChangedEvent(val gatt: BluetoothGatt, val mtu: Int, val status: Int): BluetoothGattEvent
-
-fun BluetoothGattCharacteristic.isReadable(): Boolean =
-    containsProperty(BluetoothGattCharacteristic.PROPERTY_READ)
-
-fun BluetoothGattCharacteristic.isWritable(): Boolean =
-    containsProperty(BluetoothGattCharacteristic.PROPERTY_WRITE)
-
-fun BluetoothGattCharacteristic.isWritableWithoutResponse(): Boolean =
-    containsProperty(BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)
-
-fun BluetoothGattCharacteristic.isIndicatable(): Boolean =
-    containsProperty(BluetoothGattCharacteristic.PROPERTY_INDICATE)
-
-fun BluetoothGattCharacteristic.isNotifiable(): Boolean =
-    containsProperty(BluetoothGattCharacteristic.PROPERTY_NOTIFY)
-
-fun BluetoothGattCharacteristic.containsProperty(property: Int): Boolean =
-    properties and property != 0
-
-fun BluetoothGatt.findCharacteristic(
-    characteristicUuid: UUID,
-    serviceUuid: UUID? = null
-): BluetoothGattCharacteristic? {
-    return if (serviceUuid != null) {
-        // If serviceUuid is available, use it to disambiguate cases where multiple services have
-        // distinct characteristics that happen to use the same UUID
-        services
-            ?.firstOrNull { it.uuid == serviceUuid }
-            ?.characteristics?.firstOrNull { it.uuid == characteristicUuid }
-    } else {
-        // Iterate through services and find the first one with a match for the characteristic UUID
-        services?.forEach { service ->
-            service.characteristics?.firstOrNull { characteristic ->
-                characteristic.uuid == characteristicUuid
-            }?.let { matchingCharacteristic ->
-                return matchingCharacteristic
-            }
+    private suspend inline fun <reified T : BluetoothGattEvent> awaitFirstEvent(
+        address: String,
+        timeoutMillis: Long = 3000,
+        crossinline predicate: (T) -> Boolean = { true }
+    ): T? {
+        return withTimeoutOrNull(timeoutMillis) {
+            gattEventFlow.first {
+                it is T && it.gatt.device.address.contentEquals(address, true) && predicate(it)
+            } as T
         }
-        return null
     }
-}
 
-@SuppressLint("MissingPermission")
-fun BluetoothGattCharacteristic.executeWrite(
-    gatt: BluetoothGatt,
-    payload: ByteArray,
-    writeType: Int
-) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        gatt.writeCharacteristic(this, payload, writeType)
-    } else {
-        // Fall back to deprecated version of writeCharacteristic for Android <13
-        legacyCharacteristicWrite(gatt, payload, writeType)
+    private suspend inline fun <reified T: OperationResult> awaitFirstOperationResult(
+        address: String,
+        crossinline predicate: (T) -> Boolean = { true }
+    ): T {
+        return operationResultFlow.first {
+            it is T && it.address.contentEquals(address, true) && predicate(it)
+        } as T
     }
-}
-
-@SuppressLint("MissingPermission")
-@Suppress("DEPRECATION")
-private fun BluetoothGattCharacteristic.legacyCharacteristicWrite(
-    gatt: BluetoothGatt,
-    payload: ByteArray,
-    writeType: Int
-) {
-    this.writeType = writeType
-    value = payload
-    gatt.writeCharacteristic(this)
-}
-
-@SuppressLint("MissingPermission")
-fun BluetoothGattDescriptor.executeWrite(
-    gatt: BluetoothGatt,
-    payload: ByteArray
-) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        gatt.writeDescriptor(this, payload)
-    } else {
-        // Fall back to deprecated version of writeDescriptor for Android <13
-        legacyDescriptorWrite(gatt, payload)
-    }
-}
-
-@SuppressLint("MissingPermission")
-@Suppress("DEPRECATION")
-private fun BluetoothGattDescriptor.legacyDescriptorWrite(
-    gatt: BluetoothGatt,
-    payload: ByteArray
-) {
-    value = payload
-    gatt.writeDescriptor(this)
 }
