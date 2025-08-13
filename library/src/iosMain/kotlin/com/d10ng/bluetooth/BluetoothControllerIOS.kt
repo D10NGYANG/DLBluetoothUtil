@@ -3,10 +3,7 @@ package com.d10ng.bluetooth
 import com.d10ng.common.transform.toByteArray
 import com.d10ng.common.transform.toNSData
 import kotlinx.cinterop.ObjCSignatureOverride
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -30,7 +27,6 @@ import platform.darwin.NSObject
  * @Date 2024/9/10 15:35
  */
 object BluetoothControllerIOS: IBluetoothController {
-    private val scope by lazy { CoroutineScope(Dispatchers.IO) }
     private val centralDelegate = object : NSObject(), CBCentralManagerDelegateProtocol {
         override fun centralManagerDidUpdateState(central: CBCentralManager) {
             // 状态更新
