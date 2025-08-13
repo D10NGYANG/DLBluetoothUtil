@@ -27,6 +27,17 @@ import platform.darwin.NSObject
  * @Date 2024/9/10 15:35
  */
 object BluetoothControllerIOS: IBluetoothController {
+
+    // 蓝牙状态
+    private var stateFlow = MutableStateFlow(CBManagerStateEnum.Unknown)
+    // 扫描设备
+    private val scanDevices = mutableListOf<CBPeripheral>()
+    // 已连接设备
+    private val connectedDevices = mutableMapOf<CBPeripheral, Map<CBService, List<CBCharacteristic>>>()
+    // 设备事件
+    private val deviceEventFlow = MutableSharedFlow<CBCentralManagerEvent>(extraBufferCapacity = Int.MAX_VALUE)
+    private val peripheralEventFlow = MutableSharedFlow<CBPeripheralEvent>(extraBufferCapacity = Int.MAX_VALUE)
+
     private val centralDelegate = object : NSObject(), CBCentralManagerDelegateProtocol {
         override fun centralManagerDidUpdateState(central: CBCentralManager) {
             // 状态更新
@@ -79,16 +90,8 @@ object BluetoothControllerIOS: IBluetoothController {
             BluetoothController.onDeviceDisconnect(deviceUUID)
         }
     }
+
     private val centralManager = CBCentralManager(delegate = centralDelegate, queue = null)
-    // 蓝牙状态
-    private var stateFlow = MutableStateFlow(CBManagerStateEnum.Unknown)
-    // 扫描设备
-    private val scanDevices = mutableListOf<CBPeripheral>()
-    // 已连接设备
-    private val connectedDevices = mutableMapOf<CBPeripheral, Map<CBService, List<CBCharacteristic>>>()
-    // 设备事件
-    private val deviceEventFlow = MutableSharedFlow<CBCentralManagerEvent>(extraBufferCapacity = 1024)
-    private val peripheralEventFlow = MutableSharedFlow<CBPeripheralEvent>(extraBufferCapacity = 1024)
 
     private val peripheralDelegate = object : NSObject(), CBPeripheralDelegateProtocol {
         override fun peripheralDidUpdateName(peripheral: CBPeripheral) {

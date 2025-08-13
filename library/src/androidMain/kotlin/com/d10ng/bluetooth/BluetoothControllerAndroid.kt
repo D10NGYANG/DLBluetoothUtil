@@ -36,7 +36,7 @@ import java.util.UUID
 @SuppressLint("MissingPermission")
 object BluetoothControllerAndroid : IBluetoothController {
 
-    private val scope by lazy { CoroutineScope(Dispatchers.Default + SupervisorJob()) }
+    private val scope by lazy { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
 
     // 操作任务队列
     private val operationQueueChannel = Channel<OperationType>(capacity = Channel.UNLIMITED)
