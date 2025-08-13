@@ -2,6 +2,12 @@
 
 一个基于Kotlin Multiplatform的跨平台蓝牙工具库，支持Android和iOS平台。
 
+## 参考资料
+
+- [FastBLE](https://github.com/Jasonchenlijian/FastBle)
+- [ble-starter-android](https://github.com/PunchThrough/ble-starter-android)
+- [android-ble-guide](https://punchthrough.com/android-ble-guide/)
+
 ## 功能特点
 
 - 支持Android和iOS双平台
