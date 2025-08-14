@@ -287,6 +287,7 @@ object BluetoothControllerAndroid : IBluetoothController {
                     }
 
                     is OperationTypeWrite -> {
+                        // 写入数据
                         val gatt = gattMap[operation.address]
                         if (gatt == null) {
                             Logger.w("[OperationTypeWrite] fail 未找到设备")
@@ -372,16 +373,19 @@ object BluetoothControllerAndroid : IBluetoothController {
     override suspend fun connect(address: String): List<BluetoothGattService> {
         // 提交连接任务
         operationQueueChannel.send(OperationTypeConnect(address))
-        val connectResult = awaitFirstOperationResult<OperationResultConnect>(address)
+        val connectResult = operationResultFlow.awaitFirstOperationResult<OperationResultConnect>(address)
         if (connectResult.result.not()) throw Exception("connect failed")
         // 提交设置MTU任务
         operationQueueChannel.send(OperationTypeMtuChanged(address, GATT_MAX_MTU_SIZE))
-        val mtuChangedResult = awaitFirstOperationResult<OperationResultMtuChanged>(address)
+        val mtuChangedResult = operationResultFlow.awaitFirstOperationResult<OperationResultMtuChanged>(address)
         Logger.i("set mtu to ${mtuChangedResult.mtu} ${if (mtuChangedResult.result) "success" else "fail"}")
         // 提交获取服务任务
         operationQueueChannel.send(OperationTypeDiscoverServices(address))
-        val discoverServicesResult = awaitFirstOperationResult<OperationResultDiscoverServices>(address)
-        if (discoverServicesResult.services.isEmpty()) throw Exception("discover services failed")
+        val discoverServicesResult = operationResultFlow.awaitFirstOperationResult<OperationResultDiscoverServices>(address)
+        if (discoverServicesResult.services.isEmpty()) {
+            disconnect(address)
+            throw Exception("discover services failed")
+        }
         return discoverServicesResult.services
     }
 
@@ -403,7 +407,7 @@ object BluetoothControllerAndroid : IBluetoothController {
     ) {
         // 提交开关通知任务
         operationQueueChannel.send(OperationTypeNotify(address, serviceUuid, characteristicUuid, enable))
-        val notifyResult = awaitFirstOperationResult<OperationResultNotify>(address)
+        val notifyResult = operationResultFlow.awaitFirstOperationResult<OperationResultNotify>(address)
         if (notifyResult.result.not()) throw Exception("notify failed")
     }
 
@@ -415,7 +419,7 @@ object BluetoothControllerAndroid : IBluetoothController {
     ) {
         // 提交写入任务
         operationQueueChannel.send(OperationTypeWrite(address, serviceUuid, characteristicUuid, value))
-        val writeResult = awaitFirstOperationResult<OperationResultWrite>(address)
+        val writeResult = operationResultFlow.awaitFirstOperationResult<OperationResultWrite>(address)
         if (writeResult.result.not()) throw Exception("write failed")
     }
 
@@ -429,14 +433,5 @@ object BluetoothControllerAndroid : IBluetoothController {
                 it is T && it.gatt.device.address.contentEquals(address, true) && predicate(it)
             } as T
         }
-    }
-
-    private suspend inline fun <reified T: OperationResult> awaitFirstOperationResult(
-        address: String,
-        crossinline predicate: (T) -> Boolean = { true }
-    ): T {
-        return operationResultFlow.first {
-            it is T && it.address.contentEquals(address, true) && predicate(it)
-        } as T
     }
 }

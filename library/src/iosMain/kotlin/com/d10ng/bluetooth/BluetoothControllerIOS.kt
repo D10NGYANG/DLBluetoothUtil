@@ -3,10 +3,16 @@ package com.d10ng.bluetooth
 import com.d10ng.common.transform.toByteArray
 import com.d10ng.common.transform.toNSData
 import kotlinx.cinterop.ObjCSignatureOverride
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
@@ -28,12 +34,20 @@ import platform.darwin.NSObject
  */
 object BluetoothControllerIOS: IBluetoothController {
 
+    private val scope by lazy { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
+
+    // 操作任务队列
+    private val operationQueueChannel = Channel<OperationType>(capacity = Channel.UNLIMITED)
+    // 操作结果
+    private val operationResultFlow = MutableSharedFlow<OperationResult>(extraBufferCapacity = Int.MAX_VALUE)
+
     // 蓝牙状态
-    private var stateFlow = MutableStateFlow(CBManagerStateEnum.Unknown)
+    private val stateFlow = MutableStateFlow(CBManagerStateEnum.Unknown)
     // 扫描设备
     private val scanDevices = mutableListOf<CBPeripheral>()
     // 已连接设备
-    private val connectedDevices = mutableMapOf<CBPeripheral, Map<CBService, List<CBCharacteristic>>>()
+    private val peripheralMap = mutableMapOf<String, CBPeripheral>()
+    private val serviceMap = mutableMapOf<String, List<Pair<CBService, List<CBCharacteristic>>>>()
     // 设备事件
     private val deviceEventFlow = MutableSharedFlow<CBCentralManagerEvent>(extraBufferCapacity = Int.MAX_VALUE)
     private val peripheralEventFlow = MutableSharedFlow<CBPeripheralEvent>(extraBufferCapacity = Int.MAX_VALUE)
@@ -43,7 +57,7 @@ object BluetoothControllerIOS: IBluetoothController {
             // 状态更新
             val state = CBManagerStateEnum.from(central.state)
             stateFlow.value = state
-            Logger.i("centralManagerDidUpdateState: ${state.name}")
+            Logger.d("[CBCentralManagerDelegate.centralManagerDidUpdateState] state: ${state.name}")
         }
 
         override fun centralManager(
@@ -52,18 +66,19 @@ object BluetoothControllerIOS: IBluetoothController {
             advertisementData: Map<Any?, *>,
             RSSI: NSNumber
         ) {
+            // 扫描结果
             val name = advertisementData["kCBAdvDataLocalName"]?.toString()?: didDiscoverPeripheral.name()
-            Logger.i("didDiscoverPeripheral: $name ${RSSI.intValue} ${didDiscoverPeripheral.identifier.UUIDString}")
-            scanDevices.removeAll { it.identifier.UUIDString.contentEquals(didDiscoverPeripheral.identifier.UUIDString) }
+            Logger.d("[CBCentralManagerDelegate.didDiscoverPeripheral] address: ${didDiscoverPeripheral.address}, name: $name, RSSI: ${RSSI.intValue}")
+            scanDevices.removeAll { it.address.contentEquals(didDiscoverPeripheral.address, true) }
             scanDevices.add(didDiscoverPeripheral)
-            BluetoothController.onDeviceScan(BluetoothDevice(name, didDiscoverPeripheral.identifier.UUIDString, RSSI.intValue))
+            BluetoothController.onDeviceScan(BluetoothDevice(name, didDiscoverPeripheral.address, RSSI.intValue))
         }
 
         override fun centralManager(central: CBCentralManager, didConnectPeripheral: CBPeripheral) {
-            Logger.i("didConnectPeripheral: ${didConnectPeripheral.name()} ${didConnectPeripheral.identifier.UUIDString}")
+            // 连接成功
             val mtu = didConnectPeripheral.maximumWriteValueLengthForType(CBCharacteristicWriteWithoutResponse)
-            Logger.i("mtu: $mtu")
-            deviceEventFlow.tryEmit(CBCentralManagerDidConnectEvent(didConnectPeripheral))
+            Logger.d("[CBCentralManagerDelegate.didConnectPeripheral] address: ${didConnectPeripheral.address}, name: ${didConnectPeripheral.name()}, mtu: $mtu")
+            deviceEventFlow.tryEmit(CBCentralManagerDidConnectEvent(didConnectPeripheral, mtu.toInt()))
         }
 
         override fun centralManager(
@@ -71,7 +86,8 @@ object BluetoothControllerIOS: IBluetoothController {
             didFailToConnectPeripheral: CBPeripheral,
             error: NSError?
         ) {
-            Logger.i("didFailToConnectPeripheral: ${didFailToConnectPeripheral.name()} ${didFailToConnectPeripheral.identifier.UUIDString}")
+            // 连接失败
+            Logger.w("[CBCentralManagerDelegate.didFailToConnectPeripheral] address: ${didFailToConnectPeripheral.address}, name: ${didFailToConnectPeripheral.name()}, error: $error")
             deviceEventFlow.tryEmit(CBCentralManagerDidFailToConnectEvent(didFailToConnectPeripheral, error))
         }
 
@@ -82,12 +98,10 @@ object BluetoothControllerIOS: IBluetoothController {
             isReconnecting: Boolean,
             error: NSError?
         ) {
-            val deviceUUID = didDisconnectPeripheral.identifier.UUIDString
-            Logger.i("didDisconnectPeripheral: ${didDisconnectPeripheral.name()} $deviceUUID, $error")
-            // 清理资源
-            disconnect(deviceUUID)
+            // 断开连接
+            Logger.d("[CBCentralManagerDelegate.didDisconnectPeripheral] address: ${didDisconnectPeripheral.address}, name: ${didDisconnectPeripheral.name()}, timestamp: $timestamp, isReconnecting: $isReconnecting, error: $error")
             deviceEventFlow.tryEmit(CBCentralManagerDidDisconnectEvent(didDisconnectPeripheral, timestamp, isReconnecting, error))
-            BluetoothController.onDeviceDisconnect(deviceUUID)
+            disconnect(didDisconnectPeripheral.address)
         }
     }
 
@@ -95,21 +109,17 @@ object BluetoothControllerIOS: IBluetoothController {
 
     private val peripheralDelegate = object : NSObject(), CBPeripheralDelegateProtocol {
         override fun peripheralDidUpdateName(peripheral: CBPeripheral) {
-            Logger.i("peripheralDidUpdateName: ${peripheral.name()} ${peripheral.identifier.UUIDString}")
+            Logger.d("[CBPeripheralDelegate.peripheralDidUpdateName] address: ${peripheral.address}, name: ${peripheral.name()}")
         }
 
         override fun peripheral(peripheral: CBPeripheral, didDiscoverServices: NSError?) {
+            Logger.d("[CBPeripheralDelegate.didDiscoverServices] address: ${peripheral.address}, name: ${peripheral.name()}, error: $didDiscoverServices, services: ${peripheral.services}")
             if (didDiscoverServices != null) {
-                Logger.i("Error with service discovery $didDiscoverServices")
-                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverServicesEvent(null))
+                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverServicesEvent(peripheral, null))
                 return
             }
             val ls = peripheral.services?.mapNotNull { it as? CBService }
-            if (ls.isNullOrEmpty()) {
-                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverServicesEvent(emptyList()))
-                return
-            }
-            peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverServicesEvent(ls))
+            peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverServicesEvent(peripheral, ls))
         }
 
         override fun peripheral(
@@ -117,18 +127,13 @@ object BluetoothControllerIOS: IBluetoothController {
             didDiscoverCharacteristicsForService: CBService,
             error: NSError?
         ) {
+            Logger.d("[CBPeripheralDelegate.didDiscoverCharacteristicsForService] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${didDiscoverCharacteristicsForService.UUID.UUIDString}, error: $error, characteristics: ${didDiscoverCharacteristicsForService.characteristics}")
             if (error != null) {
-                Logger.i("Error discovering characteristics: $error")
-                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, null))
+                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(peripheral, didDiscoverCharacteristicsForService, null))
                 return
             }
-            val ls = didDiscoverCharacteristicsForService.characteristics
-                ?.mapNotNull { it as? CBCharacteristic }
-            if (ls.isNullOrEmpty()) {
-                peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, emptyList()))
-                return
-            }
-            peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(didDiscoverCharacteristicsForService, ls))
+            val ls = didDiscoverCharacteristicsForService.characteristics?.mapNotNull { it as? CBCharacteristic }
+            peripheralEventFlow.tryEmit(CBPeripheralDidDiscoverCharacteristicsForServiceEvent(peripheral, didDiscoverCharacteristicsForService, ls))
         }
 
         @ObjCSignatureOverride
@@ -137,12 +142,9 @@ object BluetoothControllerIOS: IBluetoothController {
             didUpdateValueForCharacteristic: CBCharacteristic,
             error: NSError?
         ) {
-            if (error != null) {
-                Logger.i("Error update value for characteristics: $error")
-            }
             val data = didUpdateValueForCharacteristic.value?.toByteArray()?: return
+            Logger.d("[CBPeripheralDelegate.didUpdateValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${didUpdateValueForCharacteristic.serviceUuid}, characteristic: ${didUpdateValueForCharacteristic.characteristicUuid}, error: $error, data: ${data.toHexString(HexFormat.UpperCase)}")
             val curKey = peripheral.identifier.UUIDString + " " + didUpdateValueForCharacteristic.service!!.UUID.UUIDString + " " + didUpdateValueForCharacteristic.UUID.UUIDString
-            //Logger.i("收到通知，${curKey}：${data.toHexString()}")
             BluetoothController.notifyDataFlow.tryEmit(curKey to data)
         }
 
@@ -152,11 +154,8 @@ object BluetoothControllerIOS: IBluetoothController {
             didWriteValueForCharacteristic: CBCharacteristic,
             error: NSError?
         ) {
-            Logger.i("didWriteValueForCharacteristic")
-            if (error != null) {
-                Logger.i("Error write value for characteristics: $error")
-            }
-            peripheralEventFlow.tryEmit(CBPeripheralDidWriteValueForCharacteristicEvent(error == null))
+            Logger.d("[CBPeripheralDelegate.didWriteValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${didWriteValueForCharacteristic.serviceUuid}, characteristic: ${didWriteValueForCharacteristic.characteristicUuid}, error: $error")
+            peripheralEventFlow.tryEmit(CBPeripheralDidWriteValueForCharacteristicEvent(peripheral, error == null))
         }
 
         override fun peripheral(
@@ -164,12 +163,167 @@ object BluetoothControllerIOS: IBluetoothController {
             didWriteValueForDescriptor: CBDescriptor,
             error: NSError?
         ) {
-            Logger.i("didWriteValueForDescriptor")
+            Logger.d("[CBPeripheralDelegate.didWriteValueForDescriptor] address: ${peripheral.address}, name: ${peripheral.name()}, descriptor: ${didWriteValueForDescriptor.UUID.UUIDString}")
         }
 
         override fun peripheralIsReadyToSendWriteWithoutResponse(peripheral: CBPeripheral) {
-            Logger.i("peripheralIsReadyToSendWriteWithoutResponse")
-            peripheralEventFlow.tryEmit(CBPeripheralIsReadyToSendWriteWithoutResponseEvent())
+            Logger.d("[CBPeripheralDelegate.isReadyToSendWriteWithoutResponse] address: ${peripheral.address}, name: ${peripheral.name()}")
+            peripheralEventFlow.tryEmit(CBPeripheralIsReadyToSendWriteWithoutResponseEvent(peripheral))
+        }
+    }
+
+    init {
+        scope.launch {
+            for (operation in operationQueueChannel) {
+                when (operation) {
+                    is OperationTypeConnect -> {
+                        // 连接设备
+                        val device = scanDevices.firstOrNull {
+                            it.address.contentEquals(operation.address)
+                        }
+                        if (device == null) {
+                            Logger.w("[OperationTypeConnect] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        centralManager.connectPeripheral(device, null)
+                        val event = withTimeoutOrNull(5000) {
+                            deviceEventFlow.first {
+                                (it is CBCentralManagerDidConnectEvent || it is CBCentralManagerDidFailToConnectEvent)
+                                        && it.peripheral.address.contentEquals(device.address, true)
+                            }
+                        }
+                        if (event is CBCentralManagerDidConnectEvent) {
+                            Logger.d("[OperationTypeConnect] success 连接成功")
+                            peripheralMap[device.address] = device
+                            operationResultFlow.tryEmit(operation.success())
+                        } else {
+                            Logger.d("[OperationTypeConnect] fail 连接失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                        }
+                    }
+
+                    is OperationTypeDiscoverServices -> {
+                        // 获取服务
+                        val device = peripheralMap[operation.address]
+                        if (device == null) {
+                            Logger.w("[OperationTypeDiscoverServices] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        device.delegate = peripheralDelegate
+                        device.discoverServices(null)
+                        val event = withTimeoutOrNull(1000) {
+                            peripheralEventFlow.first {
+                                it is CBPeripheralDidDiscoverServicesEvent
+                                        && it.peripheral.address.contentEquals(device.address, true)
+                            } as CBPeripheralDidDiscoverServicesEvent
+                        }
+                        if (event == null || event.services.isNullOrEmpty()) {
+                            Logger.d("[OperationTypeDiscoverServices] fail 获取服务失败")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val list = event.services.map { service ->
+                            device.discoverCharacteristics(null, service)
+                            val e = withTimeoutOrNull(1000) {
+                                peripheralEventFlow.first {
+                                    it is CBPeripheralDidDiscoverCharacteristicsForServiceEvent
+                                            && it.peripheral.address.contentEquals(device.address, true)
+                                            && it.service.serviceUuid.contentEquals(service.serviceUuid, true)
+                                } as CBPeripheralDidDiscoverCharacteristicsForServiceEvent
+                            }
+                            service to (e?.characteristics ?: listOf())
+                        }
+                        serviceMap[operation.address] = list
+                        val map = list.map { (service, characteristics) ->
+                            BluetoothGattService(service.serviceUuid, characteristics.map {
+                                BluetoothGattCharacteristic(it.characteristicUuid, it.properties.toInt())
+                            })
+                        }
+                        operationResultFlow.tryEmit(operation.success(map))
+                    }
+
+                    is OperationTypeNotify -> {
+                        // 开关通知
+                        val device = peripheralMap[operation.address]
+                        if (device == null) {
+                            Logger.w("[OperationTypeNotify] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val service = serviceMap[operation.address]?.firstOrNull {
+                            it.first.serviceUuid.contentEquals(operation.serviceUuid, true)
+                        }
+                        if (service == null) {
+                            Logger.w("[OperationTypeNotify] fail 未找到服务")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val characteristic = service.second.firstOrNull {
+                            it.characteristicUuid.contentEquals(operation.characteristicUuid, true)
+                        }
+                        if (characteristic == null) {
+                            Logger.w("[OperationTypeNotify] fail 未找到特征")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        if (!characteristic.properties.toInt().bleGattCharacteristicNotifiable()) {
+                            Logger.w("[OperationTypeNotify] fail 特征不支持通知")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        if (characteristic.isNotifying != operation.enable) {
+                            device.setNotifyValue(operation.enable, characteristic)
+                        }
+                        operationResultFlow.tryEmit(operation.success())
+                    }
+
+                    is OperationTypeWrite -> {
+                        // 写入数据
+                        val device = peripheralMap[operation.address]
+                        if (device == null) {
+                            Logger.w("[OperationTypeWrite] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val service = serviceMap[operation.address]?.firstOrNull {
+                            it.first.serviceUuid.contentEquals(operation.serviceUuid, true)
+                        }
+                        if (service == null) {
+                            Logger.w("[OperationTypeWrite] fail 未找到服务")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val characteristic = service.second.firstOrNull {
+                            it.characteristicUuid.contentEquals(operation.characteristicUuid, true)
+                        }
+                        if (characteristic == null) {
+                            Logger.w("[OperationTypeWrite] fail 未找到特征")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        if (!characteristic.properties.toInt().bleGattCharacteristicWriteable()) {
+                            Logger.w("[OperationTypeWrite] fail 特征不支持写入")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        device.writeValue(operation.value.toNSData(), characteristic, CBCharacteristicWriteWithoutResponse)
+                        val event = withTimeoutOrNull(1000) {
+                            peripheralEventFlow.first {
+                                it is CBPeripheralIsReadyToSendWriteWithoutResponseEvent
+                                        && it.peripheral.address.contentEquals(device.address, true)
+                            } as CBPeripheralIsReadyToSendWriteWithoutResponseEvent
+                        }
+                        if (event == null) {
+                            Logger.w("[OperationTypeWrite] fail 写入超时")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        operationResultFlow.tryEmit(operation.success())
+                    }
+                }
+            }
         }
     }
 
@@ -217,46 +371,36 @@ object BluetoothControllerIOS: IBluetoothController {
      * @return List<BluetoothGattService>
      */
     override suspend fun connect(address: String): List<BluetoothGattService> {
-        val device = scanDevices.find { it.identifier.UUIDString.contentEquals(address) }?: throw Exception("device not found")
-        centralManager.connectPeripheral(device, null)
-        val event = deviceEventFlow.first()
-        if (event is CBCentralManagerDidConnectEvent) {
-            device.delegate = peripheralDelegate
-            device.discoverServices(null)
-            val servicesEvent = peripheralEventFlow.first { it is CBPeripheralDidDiscoverServicesEvent } as CBPeripheralDidDiscoverServicesEvent
-            if (servicesEvent.services == null) {
-                connectedDevices[device] = emptyMap()
-                return emptyList()
-            }
-            val map = servicesEvent.services.map { service ->
-                device.discoverCharacteristics(null, service)
-                val characteristicsEvent = peripheralEventFlow.first { it is CBPeripheralDidDiscoverCharacteristicsForServiceEvent } as CBPeripheralDidDiscoverCharacteristicsForServiceEvent
-                service to (characteristicsEvent.characteristics ?: listOf())
-            }
-            connectedDevices[device] = map.toMap()
-            return map.map { (service, characteristics) ->
-                BluetoothGattService(service.UUID.UUIDString, characteristics.map { BluetoothGattCharacteristic(it.UUID.UUIDString, it.properties.toInt()) })
-            }
-        } else {
-            throw Exception("连接失败!")
+        // 提交连接任务
+        operationQueueChannel.send(OperationTypeConnect(address))
+        val connectResult = operationResultFlow.awaitFirstOperationResult<OperationResultConnect>(address)
+        if (connectResult.result.not()) throw Exception("connect failed")
+        // 提交获取服务任务
+        operationQueueChannel.send(OperationTypeDiscoverServices(address))
+        val discoverServicesResult = operationResultFlow.awaitFirstOperationResult<OperationResultDiscoverServices>(address)
+        if (discoverServicesResult.services.isEmpty()) {
+            disconnect(address)
+            throw Exception("discover services failed")
         }
+        return discoverServicesResult.services
     }
 
     /**
      * 断开连接
      */
     override fun disconnect(address: String) {
-        val device = connectedDevices.filterKeys { it.identifier.UUIDString.contentEquals(address) }.keys.firstOrNull()?: return
+        val device = peripheralMap[address] ?: return
         centralManager.cancelPeripheralConnection(device)
-        connectedDevices.remove(device)
+        peripheralMap.remove(address)
+        serviceMap.remove(address)
+        BluetoothController.onDeviceDisconnect(address)
     }
 
     /**
      * 断开连接
      */
     override fun disconnectAll() {
-        connectedDevices.forEach { centralManager.cancelPeripheralConnection(it.key) }
-        connectedDevices.clear()
+        peripheralMap.keys.forEach { disconnect(it) }
     }
 
     /**
@@ -272,16 +416,10 @@ object BluetoothControllerIOS: IBluetoothController {
         characteristicUuid: String,
         enable: Boolean
     ) {
-        val device = connectedDevices.filterKeys { it.identifier.UUIDString.contentEquals(address) }.keys.firstOrNull()
-        if (device == null) throw Exception("device not found")
-        val service = connectedDevices[device]!!.filterKeys { it.UUID.UUIDString.contentEquals(serviceUuid) }.keys.firstOrNull()
-        if (service == null) throw Exception("service not found")
-        val characteristic = connectedDevices[device]!![service]!!.firstOrNull { it.UUID.UUIDString.contentEquals(characteristicUuid) }
-        if (characteristic == null) throw Exception("characteristic not found")
-        if (characteristic.properties.toInt().bleGattCharacteristicNotifiable().not()) throw Exception("characteristic not support notify")
-        if (characteristic.isNotifying != enable) {
-            device.setNotifyValue(enable, characteristic)
-        }
+        // 提交开关通知任务
+        operationQueueChannel.send(OperationTypeNotify(address, serviceUuid, characteristicUuid, enable))
+        val notifyResult = operationResultFlow.awaitFirstOperationResult<OperationResultNotify>(address)
+        if (notifyResult.result.not()) throw Exception("notify failed")
     }
 
     /**
@@ -291,22 +429,15 @@ object BluetoothControllerIOS: IBluetoothController {
      * @param characteristicUuid String
      * @param value ByteArray
      */
-    @OptIn(FlowPreview::class)
     override suspend fun write(
         address: String,
         serviceUuid: String,
         characteristicUuid: String,
         value: ByteArray
     ) {
-        val device = connectedDevices.filterKeys { it.identifier.UUIDString.contentEquals(address) }.keys.firstOrNull()
-        if (device == null) throw Exception("device not found")
-        val service = connectedDevices[device]!!.filterKeys { it.UUID.UUIDString.contentEquals(serviceUuid) }.keys.firstOrNull()
-        if (service == null) throw Exception("service not found")
-        val characteristic = connectedDevices[device]!![service]!!.firstOrNull { it.UUID.UUIDString.contentEquals(characteristicUuid) }
-        if (characteristic == null) throw Exception("characteristic not found")
-        if (characteristic.properties.toInt().bleGattCharacteristicWriteable().not()) throw Exception("characteristic not support write")
-        device.writeValue(value.toNSData(), characteristic, CBCharacteristicWriteWithoutResponse)
-        val event = withTimeoutOrNull(500) { peripheralEventFlow.first { it is CBPeripheralIsReadyToSendWriteWithoutResponseEvent } as CBPeripheralIsReadyToSendWriteWithoutResponseEvent }
-        if (event == null) throw Exception("write error")
+        // 提交写入任务
+        operationQueueChannel.send(OperationTypeWrite(address, serviceUuid, characteristicUuid, value))
+        val writeResult = operationResultFlow.awaitFirstOperationResult<OperationResultWrite>(address)
+        if (writeResult.result.not()) throw Exception("write failed")
     }
 }

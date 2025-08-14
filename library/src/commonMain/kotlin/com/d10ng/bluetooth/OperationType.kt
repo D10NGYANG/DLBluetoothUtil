@@ -1,5 +1,8 @@
 package com.d10ng.bluetooth
 
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.first
+
 /**
  * 蓝牙操作类型
  * @Author d10ng
@@ -48,3 +51,12 @@ data class OperationResultNotify(override val address: String, val serviceUuid: 
 data class OperationResultWrite(override val address: String, val serviceUuid: String, val characteristicUuid: String, val result: Boolean): OperationResult
 // MTU改变结果
 data class OperationResultMtuChanged(override val address: String, val mtu: Int, val result: Boolean): OperationResult
+
+suspend inline fun <reified T: OperationResult> SharedFlow<OperationResult>.awaitFirstOperationResult(
+    address: String,
+    crossinline predicate: (T) -> Boolean = { true }
+): T {
+    return this.first {
+        it is T && it.address.contentEquals(address, true) && predicate(it)
+    } as T
+}

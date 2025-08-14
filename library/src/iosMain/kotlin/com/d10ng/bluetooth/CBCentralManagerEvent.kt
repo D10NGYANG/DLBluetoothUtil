@@ -10,9 +10,11 @@ import platform.Foundation.NSError
  * @Date 2024/9/11 16:00
  */
 
-interface CBCentralManagerEvent {}
+interface CBCentralManagerEvent {
+    val peripheral: CBPeripheral
+}
 
-data class CBCentralManagerDidConnectEvent(val peripheral: CBPeripheral) : CBCentralManagerEvent
-data class CBCentralManagerDidFailToConnectEvent(val peripheral: CBPeripheral, val error: NSError?) : CBCentralManagerEvent
-data class CBCentralManagerDidDisconnectEvent(val peripheral: CBPeripheral, val timestamp: CFAbsoluteTime, val isReconnecting: Boolean, val error: NSError?) : CBCentralManagerEvent
+data class CBCentralManagerDidConnectEvent(override val peripheral: CBPeripheral, val mtu: Int) : CBCentralManagerEvent
+data class CBCentralManagerDidFailToConnectEvent(override val peripheral: CBPeripheral, val error: NSError?) : CBCentralManagerEvent
+data class CBCentralManagerDidDisconnectEvent(override val peripheral: CBPeripheral, val timestamp: CFAbsoluteTime, val isReconnecting: Boolean, val error: NSError?) : CBCentralManagerEvent
 
