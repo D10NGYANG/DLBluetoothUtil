@@ -8,5 +8,3 @@ import com.d10ng.common.log.LogIt
  * @Date 2024/9/23 14:09
  */
 internal object Logger: LogIt("Bluetooth")
-
-internal expect fun setThirdLibDebug(debug: Boolean)

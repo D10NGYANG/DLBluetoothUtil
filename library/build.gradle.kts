@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.github.D10NGYANG"
-version = "0.3.0"
+version = "0.4.0"
 
 kotlin {
     jvmToolchain(8)
@@ -36,8 +36,6 @@ kotlin {
             implementation(libs.kotlinx.coroutines.android)
             // startup
             implementation(libs.androidx.startup.runtime)
-            // 蓝牙通讯
-            api(files("libs/FastBLE-2.3.4.jar"))
             // APP通用工具
             implementation(libs.dl.app)
         }
@@ -68,7 +66,6 @@ afterEvaluate {
     publishing {
         publications {
             withType(MavenPublication::class) {
-                //artifactId = artifactId.replace(project.name, rootProject.name)
                 artifact(tasks["javadocJar"])
             }
         }

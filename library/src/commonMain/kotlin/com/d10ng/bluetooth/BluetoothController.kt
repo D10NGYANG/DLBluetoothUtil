@@ -33,7 +33,6 @@ object BluetoothController {
      */
     fun setDebug(debug: Boolean) {
         Logger.debug = debug
-        setThirdLibDebug(debug)
     }
 
     /**
