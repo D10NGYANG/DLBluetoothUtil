@@ -19,7 +19,7 @@ object BluetoothController {
     // 是否正在扫描
     val scanningFlow = MutableStateFlow(false)
     // 通知数据
-    val notifyDataFlow = MutableSharedFlow<Pair<String, ByteArray>>(extraBufferCapacity = 2048)
+    val notifyDataFlow = MutableSharedFlow<Pair<String, ByteArray>>(extraBufferCapacity = Int.MAX_VALUE)
     // 数据分包传输大小
     var splitWriteNum = 20
         set(value) {

@@ -5,7 +5,6 @@ import com.d10ng.common.transform.toNSData
 import kotlinx.cinterop.ObjCSignatureOverride
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
@@ -355,6 +354,7 @@ object BluetoothControllerIOS: IBluetoothController {
      */
     override fun startScan() {
         stopScan()
+        scanDevices.clear()
         centralManager.scanForPeripheralsWithServices(null, null)
     }
 
