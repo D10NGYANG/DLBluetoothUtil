@@ -400,7 +400,7 @@ object BluetoothControllerAndroid : IBluetoothController {
         operationQueueChannel.send(OperationTypeMtuChanged(address, GATT_MAX_MTU_SIZE))
         val mtuChangedResult = operationResultFlow.awaitFirstOperationResult<OperationResultMtuChanged>(address)
         Logger.i("set mtu to ${mtuChangedResult.mtu} ${if (mtuChangedResult.result) "success" else "fail"}")
-        return if (mtuChangedResult.result) mtuChangedResult.mtu else GATT_MIN_MTU_SIZE
+        return (if (mtuChangedResult.result) mtuChangedResult.mtu else GATT_MIN_MTU_SIZE) - 3
     }
 
     override suspend fun notify(
