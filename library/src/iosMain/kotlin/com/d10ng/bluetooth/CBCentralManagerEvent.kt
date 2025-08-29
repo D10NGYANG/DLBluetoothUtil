@@ -14,7 +14,7 @@ interface CBCentralManagerEvent {
     val peripheral: CBPeripheral
 }
 
-data class CBCentralManagerDidConnectEvent(override val peripheral: CBPeripheral, val mtu: Int) : CBCentralManagerEvent
+data class CBCentralManagerDidConnectEvent(override val peripheral: CBPeripheral) : CBCentralManagerEvent
 data class CBCentralManagerDidFailToConnectEvent(override val peripheral: CBPeripheral, val error: NSError?) : CBCentralManagerEvent
 data class CBCentralManagerDidDisconnectEvent(override val peripheral: CBPeripheral, val timestamp: CFAbsoluteTime, val isReconnecting: Boolean, val error: NSError?) : CBCentralManagerEvent
 

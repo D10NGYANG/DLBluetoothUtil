@@ -375,10 +375,6 @@ object BluetoothControllerAndroid : IBluetoothController {
         operationQueueChannel.send(OperationTypeConnect(address))
         val connectResult = operationResultFlow.awaitFirstOperationResult<OperationResultConnect>(address)
         if (connectResult.result.not()) throw Exception("connect failed")
-        // 提交设置MTU任务
-        operationQueueChannel.send(OperationTypeMtuChanged(address, GATT_MAX_MTU_SIZE))
-        val mtuChangedResult = operationResultFlow.awaitFirstOperationResult<OperationResultMtuChanged>(address)
-        Logger.i("set mtu to ${mtuChangedResult.mtu} ${if (mtuChangedResult.result) "success" else "fail"}")
         // 提交获取服务任务
         operationQueueChannel.send(OperationTypeDiscoverServices(address))
         val discoverServicesResult = operationResultFlow.awaitFirstOperationResult<OperationResultDiscoverServices>(address)
@@ -397,6 +393,14 @@ object BluetoothControllerAndroid : IBluetoothController {
 
     override fun disconnectAll() {
         gattMap.keys.forEach { disconnect(it) }
+    }
+
+    override suspend fun requestMtu(address: String): Int {
+        // 提交设置MTU任务
+        operationQueueChannel.send(OperationTypeMtuChanged(address, GATT_MAX_MTU_SIZE))
+        val mtuChangedResult = operationResultFlow.awaitFirstOperationResult<OperationResultMtuChanged>(address)
+        Logger.i("set mtu to ${mtuChangedResult.mtu} ${if (mtuChangedResult.result) "success" else "fail"}")
+        return if (mtuChangedResult.result) mtuChangedResult.mtu else GATT_MIN_MTU_SIZE
     }
 
     override suspend fun notify(

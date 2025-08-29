@@ -160,6 +160,7 @@ fun App() {
                                         scope.launch {
                                             services.clear()
                                             services.addAll(BluetoothController.connect(item))
+                                            BluetoothController.splitWriteNum = BluetoothController.requestMtu(item.address)
                                         }
                                     }
                             ) {

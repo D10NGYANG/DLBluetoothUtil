@@ -9,13 +9,13 @@ interface IBluetoothController {
 
     /**
      * 是否支持蓝牙
-     * @return Boolean
+     * @return [Boolean]
      */
     fun isBleSupport(): Boolean
 
     /**
      * 是否已开启蓝牙
-     * @return Boolean
+     * @return [Boolean]
      */
     fun isBleEnable(): Boolean
 
@@ -36,13 +36,14 @@ interface IBluetoothController {
 
     /**
      * 连接设备
-     * @param address String
-     * @return List<BluetoothGattService>
+     * @param address [String]
+     * @return [List]<[BluetoothGattService]>
      */
     suspend fun connect(address: String): List<BluetoothGattService>
 
     /**
      * 断开连接
+     * @param address [String]
      */
     fun disconnect(address: String)
 
@@ -52,20 +53,27 @@ interface IBluetoothController {
     fun disconnectAll()
 
     /**
+     * 获取最大写入MTU
+     * @param address [String]
+     * @return [Int]
+     */
+    suspend fun requestMtu(address: String): Int
+
+    /**
      * 打开或关闭通知
-     * @param address String
-     * @param serviceUuid String
-     * @param characteristicUuid String
-     * @param enable Boolean
+     * @param address [String]
+     * @param serviceUuid [String]
+     * @param characteristicUuid [String]
+     * @param enable [Boolean]
      */
     suspend fun notify(address: String, serviceUuid: String, characteristicUuid: String, enable: Boolean)
 
     /**
      * 写入数据
-     * @param address String
-     * @param serviceUuid String
-     * @param characteristicUuid String
-     * @param value ByteArray
+     * @param address [String]
+     * @param serviceUuid [String]
+     * @param characteristicUuid [String]
+     * @param value [ByteArray]
      */
     suspend fun write(address: String, serviceUuid: String, characteristicUuid: String, value: ByteArray)
 }

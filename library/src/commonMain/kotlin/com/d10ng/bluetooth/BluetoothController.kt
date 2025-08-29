@@ -29,7 +29,7 @@ object BluetoothController {
 
     /**
      * 设置日志输出
-     * @param debug Boolean
+     * @param debug [Boolean]
      */
     fun setDebug(debug: Boolean) {
         Logger.debug = debug
@@ -37,13 +37,13 @@ object BluetoothController {
 
     /**
      * 是否支持蓝牙
-     * @return Boolean
+     * @return [Boolean]
      */
     fun isBleSupport(): Boolean = controller.isBleSupport()
 
     /**
      * 是否已开启蓝牙
-     * @return Boolean
+     * @return [Boolean]
      */
     fun isBleEnable(): Boolean = controller.isBleEnable()
 
@@ -74,7 +74,7 @@ object BluetoothController {
 
     /**
      * 设备扫描
-     * @param device BluetoothDevice
+     * @param device [BluetoothDevice]
      */
     internal fun onDeviceScan(device: BluetoothDevice) {
         if (device.name == null) return
@@ -87,8 +87,8 @@ object BluetoothController {
 
     /**
      * 连接设备
-     * @param device BluetoothDevice
-     * @return List<BluetoothGattService>
+     * @param device [BluetoothDevice]
+     * @return [List]<[BluetoothGattService]>
      */
     suspend fun connect(device: BluetoothDevice): List<BluetoothGattService> {
         cancelScan()
@@ -104,6 +104,7 @@ object BluetoothController {
 
     /**
      * 断开设备连接
+     * @param device [BluetoothDevice]
      */
     fun disconnect(device: BluetoothDevice) {
         Logger.i("断开设备：${device.name}(${device.address})")
@@ -120,7 +121,7 @@ object BluetoothController {
 
     /**
      * 触发断开连接
-     * @param address String
+     * @param address [String]
      */
     internal fun onDeviceDisconnect(address: String) {
         Logger.i("设备断开连接：${address}")
@@ -130,11 +131,20 @@ object BluetoothController {
     }
 
     /**
+     * 获取最大写入MTU
+     * @param address [String]
+     * @return [Int]
+     */
+    suspend fun requestMtu(address: String): Int {
+        return controller.requestMtu(address)
+    }
+
+    /**
      * 打开通知
-     * @param address String
-     * @param serviceUuid String
-     * @param characteristicUuid String
-     * @param enable Boolean
+     * @param address [String]
+     * @param serviceUuid [String]
+     * @param characteristicUuid [String]
+     * @param enable [Boolean]
      */
     suspend fun notify(address: String, serviceUuid: String, characteristicUuid: String, enable: Boolean) {
         Logger.i("打开通知：${address}，$serviceUuid，$characteristicUuid，$enable")
@@ -143,10 +153,10 @@ object BluetoothController {
 
     /**
      * 写入数据
-     * @param address String
-     * @param serviceUuid String
-     * @param characteristicUuid String
-     * @param value ByteArray
+     * @param address [String]
+     * @param serviceUuid [String]
+     * @param characteristicUuid [String]
+     * @param value [ByteArray]
      */
     suspend fun write(address: String, serviceUuid: String, characteristicUuid: String, value: ByteArray) {
         value.toList().chunked(splitWriteNum).map { it.toByteArray() }.forEach { data ->
@@ -158,6 +168,6 @@ object BluetoothController {
 
 /**
  * 获取蓝牙实现
- * @return IBluetoothController
+ * @return [IBluetoothController]
  */
 expect fun getBluetoothController(): IBluetoothController

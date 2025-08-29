@@ -35,6 +35,9 @@ object BluetoothControllerIOS: IBluetoothController {
 
     private val scope by lazy { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
 
+    private const val GATT_MAX_MTU_SIZE = 517
+    private const val GATT_MIN_MTU_SIZE = 23
+
     // 操作任务队列
     private val operationQueueChannel = Channel<OperationType>(capacity = Channel.UNLIMITED)
     // 操作结果
@@ -75,9 +78,8 @@ object BluetoothControllerIOS: IBluetoothController {
 
         override fun centralManager(central: CBCentralManager, didConnectPeripheral: CBPeripheral) {
             // 连接成功
-            val mtu = didConnectPeripheral.maximumWriteValueLengthForType(CBCharacteristicWriteWithoutResponse)
-            Logger.d("[CBCentralManagerDelegate.didConnectPeripheral] address: ${didConnectPeripheral.address}, name: ${didConnectPeripheral.name()}, mtu: $mtu")
-            deviceEventFlow.tryEmit(CBCentralManagerDidConnectEvent(didConnectPeripheral, mtu.toInt()))
+            Logger.d("[CBCentralManagerDelegate.didConnectPeripheral] address: ${didConnectPeripheral.address}, name: ${didConnectPeripheral.name()}")
+            deviceEventFlow.tryEmit(CBCentralManagerDidConnectEvent(didConnectPeripheral))
         }
 
         override fun centralManager(
@@ -243,6 +245,18 @@ object BluetoothControllerIOS: IBluetoothController {
                         operationResultFlow.tryEmit(operation.success(map))
                     }
 
+                    is OperationTypeMtuChanged -> {
+                        // 获取 MTU
+                        val device = peripheralMap[operation.address]
+                        if (device == null) {
+                            Logger.w("[OperationTypeMtuChanged] fail 未找到设备")
+                            operationResultFlow.tryEmit(operation.fail())
+                            continue
+                        }
+                        val mtu = device.maximumWriteValueLengthForType(CBCharacteristicWriteWithoutResponse)
+                        operationResultFlow.tryEmit(operation.success(mtu.toInt()))
+                    }
+
                     is OperationTypeNotify -> {
                         // 开关通知
                         val device = peripheralMap[operation.address]
@@ -326,50 +340,28 @@ object BluetoothControllerIOS: IBluetoothController {
         }
     }
 
-    /**
-     * 是否支持蓝牙
-     * @return Boolean
-     */
     override fun isBleSupport(): Boolean {
         return true
     }
 
-    /**
-     * 是否已开启蓝牙
-     * @return Boolean
-     */
     override fun isBleEnable(): Boolean {
         return stateFlow.value == CBManagerStateEnum.PoweredOn
     }
 
-    /**
-     * 开启蓝牙
-     */
     override suspend fun bleEnable() {
         // IOS没有对应的动作，开始扫描就会去申请开启蓝牙了
     }
 
-    /**
-     * 开始扫描
-     */
     override fun startScan() {
         stopScan()
         scanDevices.clear()
         centralManager.scanForPeripheralsWithServices(null, null)
     }
 
-    /**
-     * 结束扫描
-     */
     override fun stopScan() {
         centralManager.stopScan()
     }
 
-    /**
-     * 连接设备
-     * @param address String
-     * @return List<BluetoothGattService>
-     */
     override suspend fun connect(address: String): List<BluetoothGattService> {
         // 提交连接任务
         operationQueueChannel.send(OperationTypeConnect(address))
@@ -385,9 +377,6 @@ object BluetoothControllerIOS: IBluetoothController {
         return discoverServicesResult.services
     }
 
-    /**
-     * 断开连接
-     */
     override fun disconnect(address: String) {
         val device = peripheralMap[address] ?: return
         centralManager.cancelPeripheralConnection(device)
@@ -396,20 +385,18 @@ object BluetoothControllerIOS: IBluetoothController {
         BluetoothController.onDeviceDisconnect(address)
     }
 
-    /**
-     * 断开连接
-     */
     override fun disconnectAll() {
         peripheralMap.keys.forEach { disconnect(it) }
     }
 
-    /**
-     * 打开或关闭通知
-     * @param address String
-     * @param serviceUuid String
-     * @param characteristicUuid String
-     * @param enable Boolean
-     */
+    override suspend fun requestMtu(address: String): Int {
+        // 提交设置MTU任务
+        operationQueueChannel.send(OperationTypeMtuChanged(address, GATT_MAX_MTU_SIZE))
+        val mtuChangedResult = operationResultFlow.awaitFirstOperationResult<OperationResultMtuChanged>(address)
+        Logger.i("set mtu to ${mtuChangedResult.mtu} ${if (mtuChangedResult.result) "success" else "fail"}")
+        return if (mtuChangedResult.result) mtuChangedResult.mtu else GATT_MIN_MTU_SIZE
+    }
+
     override suspend fun notify(
         address: String,
         serviceUuid: String,
@@ -422,13 +409,6 @@ object BluetoothControllerIOS: IBluetoothController {
         if (notifyResult.result.not()) throw Exception("notify failed")
     }
 
-    /**
-     * 写入数据
-     * @param address String
-     * @param serviceUuid String
-     * @param characteristicUuid String
-     * @param value ByteArray
-     */
     override suspend fun write(
         address: String,
         serviceUuid: String,
