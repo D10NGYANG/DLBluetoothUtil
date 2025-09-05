@@ -24,11 +24,15 @@ dependencyResolutionManagement {
                 includeGroupAndSubgroups("com.google")
             }
         }
+        maven("https://raw.githubusercontent.com/D10NGYANG/maven-repo/main/repository") {
+            mavenContent {
+                includeGroupAndSubgroups("com.github.D10NGYANG")
+            }
+        }
         mavenCentral()
-        maven("https://raw.githubusercontent.com/D10NGYANG/maven-repo/main/repository")
         maven("https://jitpack.io")
     }
 }
 
-include(":androidApp", ":composeApp", ":library")
+include(":composeApp", ":library")
 project(":library").name = "DLBluetoothUtil"
