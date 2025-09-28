@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.first
  * @Author d10ng
  * @Date 2025/8/13 14:59
  */
-interface OperationType {}
+interface OperationType
 
 // 连接
 data class OperationTypeConnect(val address: String): OperationType {

@@ -34,5 +34,9 @@ dependencyResolutionManagement {
     }
 }
 
-include(":composeApp", ":library")
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
+include(":composeApp", ":library", ":lib")
 project(":library").name = "DLBluetoothUtil"

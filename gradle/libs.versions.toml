@@ -1,32 +1,40 @@
 [versions]
-agp = "8.11.1"
-android-compileSdk = "35"
+agp = "8.13.0"
+android-compileSdk = "36"
 android-minSdk = "26"
 android-targetSdk = "34"
-androidx-activity = "1.10.1"
-androidx-lifecycle = "2.9.1"
+androidx-activity = "1.11.0"
+androidx-core = "1.17.0"
+androidx-lifecycle = "2.9.4"
 androidx-startup-runtime = "1.2.0"
-compose-plugin = "1.8.2"
-kotlin = "2.2.0"
+compose-hotreload = "1.0.0-beta08"
+compose-multiplatform = "1.9.0"
+jetbrains-androidx-lifecycle = "2.9.4"
+kotlin = "2.2.20"
 kotlinx-coroutines = "1.10.2"
 dlcommon = "0.7.0"
 dlapp = "2.6.0"
+dllogutil = "0.1.1"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
 androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "androidx-activity" }
-androidx-lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
-androidx-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
 androidx-startup-runtime = { module = "androidx.startup:startup-runtime", version.ref = "androidx-startup-runtime" }
+jetbrains-androidx-lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
+jetbrains-androidx-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "jetbrains-androidx-lifecycle" }
+jetbrains-androidx-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "jetbrains-androidx-lifecycle" }
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
 dl-common = { module = "com.github.D10NGYANG:DLCommonUtil", version.ref = "dlcommon" }
 dl-app = { module = "com.github.D10NGYANG:DLAppUtil", version.ref = "dlapp" }
+dl-log = { module = "com.github.D10NGYANG:DLLogUtil", version.ref = "dllogutil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
-compose = { id = "org.jetbrains.compose", version.ref = "compose-plugin" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+compose-hotreload = { id = "org.jetbrains.compose.hot-reload", version.ref = "compose-hotreload" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
