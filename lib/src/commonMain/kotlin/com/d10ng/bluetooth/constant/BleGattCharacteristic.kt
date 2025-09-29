@@ -5,8 +5,8 @@ package com.d10ng.bluetooth.constant
  * @Author d10ng
  * @Date 2025/9/28 17:52
  */
-data class BluetoothGattCharacteristic(
+data class BleGattCharacteristic(
     val uuid: String,
     val serviceUuid: String,
-    val properties: Set<BluetoothGattCharacteristicProperty>
+    val properties: Set<BleGattCharacteristicProperty>
 )

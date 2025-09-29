@@ -17,7 +17,7 @@ import android.os.Build
 import com.d10ng.app.managers.ActivityManager
 import com.d10ng.app.managers.PermissionManager
 import com.d10ng.app.status.isLocationEnabled
-import com.d10ng.bluetooth.constant.BluetoothDevice
+import com.d10ng.bluetooth.constant.BleDevice
 import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.channels.awaitClose
@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.callbackFlow
  * @Author d10ng
  * @Date 2025/9/29 11:08
  */
-object AndroidBluetoothManager: ABluetoothManager() {
+object AndroidBleManager: ABleManager() {
 
     private val bluetoothManager by lazy { ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager? }
     private val bluetoothAdapter by lazy { bluetoothManager?.adapter }
@@ -40,6 +40,9 @@ object AndroidBluetoothManager: ABluetoothManager() {
         .build()
 
     init {
+        // 启动任务执行器
+        AndroidOperationRunner.start()
+        // 注册蓝牙状态监听
         val intentFilter = IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
         }
@@ -111,7 +114,7 @@ object AndroidBluetoothManager: ABluetoothManager() {
     }
 
     @SuppressLint("MissingPermission")
-    override fun scan(): Flow<BluetoothDevice> = callbackFlow {
+    override fun scan(): Flow<BleDevice> = callbackFlow {
         val scanner = bluetoothScanner
         if (scanner == null) {
             close(IllegalStateException("Bluetooth scanner not available"))
@@ -137,7 +140,7 @@ object AndroidBluetoothManager: ABluetoothManager() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 result?: return
                 log.d { "[ScanCallback.onScanResult] callbackType: $callbackType, result: $result" }
-                val bleDevice = BluetoothDevice(result.device.name, result.device.address, result.rssi, result.device)
+                val bleDevice = BleDevice(result.device.name, result.device.address, result.rssi, result.device)
                 trySend(bleDevice)
             }
 
@@ -161,9 +164,9 @@ object AndroidBluetoothManager: ABluetoothManager() {
         }
     }
 
-    override suspend fun connect(device: BluetoothDevice): ABluetoothConnection {
-        val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address))
+    override suspend fun connect(device: BleDevice): ABleConnection {
+        val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, device))
         if (result == null || !result.result) throw Exception("Connect failed")
-        return AndroidBluetoothConnection(device, result.obj as BluetoothGatt)
+        return AndroidBleConnection(device, result.obj as BluetoothGatt)
     }
 }

@@ -16,7 +16,7 @@ package com.d10ng.bluetooth.constant
  * @Author d10ng
  * @Date 2025/9/28 17:46
  */
-enum class BluetoothGattCharacteristicProperty(val value: Int) {
+enum class BleGattCharacteristicProperty(val value: Int) {
     /**
      * 允许在“特征值广播”中包含此特征（通常用于 Advertising Data）。
      * 实际使用较少，多数设备不支持。
@@ -73,7 +73,7 @@ enum class BluetoothGattCharacteristicProperty(val value: Int) {
          * @param value 整数值
          * @return Set<BluetoothGattCharacteristicProperty>
          */
-        fun fromValue(value: Int): Set<BluetoothGattCharacteristicProperty> {
+        fun fromValue(value: Int): Set<BleGattCharacteristicProperty> {
             return entries.filter { (value and it.value) != 0 }.toSet()
         }
 
@@ -82,7 +82,7 @@ enum class BluetoothGattCharacteristicProperty(val value: Int) {
          * @param properties 属性集合
          * @return Int
          */
-        fun toValue(properties: Set<BluetoothGattCharacteristicProperty>): Int {
+        fun toValue(properties: Set<BleGattCharacteristicProperty>): Int {
             return properties.sumOf { it.value }
         }
     }

@@ -1,9 +1,9 @@
 package com.d10ng.bluetooth
 
-import com.d10ng.bluetooth.constant.BluetoothDevice
-import com.d10ng.bluetooth.constant.BluetoothGattCharacteristic
-import com.d10ng.bluetooth.constant.BluetoothGattNotifyData
-import com.d10ng.bluetooth.constant.BluetoothGattService
+import com.d10ng.bluetooth.constant.BleDevice
+import com.d10ng.bluetooth.constant.BleGattCharacteristic
+import com.d10ng.bluetooth.constant.BleGattNotifyData
+import com.d10ng.bluetooth.constant.BleGattService
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -12,11 +12,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * @Author d10ng
  * @Date 2025/9/29 09:34
  */
-abstract class ABluetoothConnection(
-    val device: BluetoothDevice
+abstract class ABleConnection(
+    val device: BleDevice
 ) {
 
-    companion object {
+    companion object Companion {
         const val GATT_MAX_MTU_SIZE = 517
         const val GATT_MIN_MTU_SIZE = 23
         const val CCC_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805F9B34FB"
@@ -26,19 +26,19 @@ abstract class ABluetoothConnection(
     val isConnectedFlow = MutableStateFlow(true)
 
     // 服务列表
-    val servicesFlow = MutableStateFlow<List<BluetoothGattService>>(listOf())
+    val servicesFlow = MutableStateFlow<List<BleGattService>>(listOf())
 
     // 订阅通知状态
-    val notifyStatusFlow = MutableStateFlow<List<BluetoothGattCharacteristic>>(listOf())
+    val notifyStatusFlow = MutableStateFlow<List<BleGattCharacteristic>>(listOf())
 
     // 通知数据
-    val notifyDataFlow = MutableSharedFlow<BluetoothGattNotifyData>(extraBufferCapacity = Int.MAX_VALUE)
+    val notifyDataFlow = MutableSharedFlow<BleGattNotifyData>(extraBufferCapacity = Int.MAX_VALUE)
 
     /**
      * 发现服务
      * @return List<BluetoothGattService> 服务列表
      */
-    abstract suspend fun discoverServices(): List<BluetoothGattService>
+    abstract suspend fun discoverServices(): List<BleGattService>
 
     /**
      * 请求最大写入MTU

@@ -11,7 +11,7 @@ sealed class OperationResult(
     // 连接结果
     data class Connect(override val address: String, val result: Boolean, val obj: Any?): OperationResult(address)
     // 服务发现结果
-    data class DiscoverServices(override val address: String, val services: List<BluetoothGattService>): OperationResult(address)
+    data class DiscoverServices(override val address: String, val services: List<BleGattService>): OperationResult(address)
     // 开关通知结果
     data class Notify(override val address: String, val serviceUuid: String, val characteristicUuid: String, val enable: Boolean, val result: Boolean): OperationResult(address)
     // 写数据结果

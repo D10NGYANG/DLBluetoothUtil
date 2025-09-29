@@ -1,22 +1,22 @@
 package com.d10ng.bluetooth
 
 import android.bluetooth.BluetoothGatt
-import com.d10ng.bluetooth.constant.BluetoothDevice
-import com.d10ng.bluetooth.constant.BluetoothGattService
+import com.d10ng.bluetooth.constant.BleDevice
+import com.d10ng.bluetooth.constant.BleGattService
 
 /**
  * Android蓝牙连接
  * @Author d10ng
  * @Date 2025/9/29 15:07
  */
-class AndroidBluetoothConnection(
-    device: BluetoothDevice,
+class AndroidBleConnection(
+    device: BleDevice,
     val gatt: BluetoothGatt
-): ABluetoothConnection(device) {
+): ABleConnection(device) {
 
 
 
-    override suspend fun discoverServices(): List<BluetoothGattService> {
+    override suspend fun discoverServices(): List<BleGattService> {
         TODO("Not yet implemented")
     }
 

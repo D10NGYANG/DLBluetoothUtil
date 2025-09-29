@@ -5,7 +5,7 @@ package com.d10ng.bluetooth.constant
  * @Author d10ng
  * @Date 2024/9/10 15:16
  */
-data class BluetoothDevice(
+data class BleDevice(
     // 设备名称
     val name: String?,
     // 设备地址

@@ -1,6 +1,6 @@
 package com.d10ng.bluetooth
 
-import com.d10ng.bluetooth.constant.BluetoothDevice
+import com.d10ng.bluetooth.constant.BleDevice
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * @Author d10ng
  * @Date 2025/9/29 09:58
  */
-abstract class ABluetoothManager {
+abstract class ABleManager {
 
     /**
      * 判断当前环境是否支持BLE
@@ -35,12 +35,12 @@ abstract class ABluetoothManager {
      * 开始扫描
      * @return Flow<BluetoothDevice>
      */
-    abstract fun scan(): Flow<BluetoothDevice>
+    abstract fun scan(): Flow<BleDevice>
 
     /**
      * 连接设备
      * @param device BluetoothDevice
      * @return ABluetoothConnection
      */
-    abstract suspend fun connect(device: BluetoothDevice): ABluetoothConnection
+    abstract suspend fun connect(device: BleDevice): ABleConnection
 }
