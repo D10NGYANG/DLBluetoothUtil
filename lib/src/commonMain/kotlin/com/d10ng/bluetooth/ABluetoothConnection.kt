@@ -45,9 +45,8 @@ abstract class ABluetoothConnection(
      * @param serviceUuid String 服务UUID
      * @param characteristicUuid String 特征值UUID
      * @param value ByteArray 数据
-     * @param withResponse Boolean 是否需要返回结果
      */
-    abstract suspend fun write(serviceUuid: String, characteristicUuid: String, value: ByteArray, withResponse: Boolean = true)
+    abstract suspend fun write(serviceUuid: String, characteristicUuid: String, value: ByteArray)
 
     /**
      * 监听特征值
