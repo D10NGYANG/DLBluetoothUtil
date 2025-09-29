@@ -354,13 +354,12 @@ object BluetoothControllerAndroid : IBluetoothController {
         scope.launch {
             // 如果Android API小于30，需要请求定位权限
             val isAndroidOver30 = Build.VERSION.SDK_INT > Build.VERSION_CODES.R
-            if (isAndroidOver30.not() && PermissionManager.request(locationPermissionArray)
-                    .not()
-            ) throw Exception("missing location permission")
-            if (isAndroidOver30.not() && isLocationEnabled().not()) throw Exception("location off")
-            if (PermissionManager.request(bluetoothPermissionArray)
-                    .not()
-            ) throw Exception("missing bluetooth permission")
+            if (!isAndroidOver30 && !PermissionManager.request(locationPermissionArray))
+                throw Exception("missing location permission")
+            if (!isAndroidOver30 && !isLocationEnabled())
+                throw Exception("location off")
+            if (!PermissionManager.request(bluetoothPermissionArray))
+                throw Exception("missing bluetooth permission")
             scanResults.clear()
             bluetoothScanner?.startScan(null, scanSettings, scanCallback)
         }

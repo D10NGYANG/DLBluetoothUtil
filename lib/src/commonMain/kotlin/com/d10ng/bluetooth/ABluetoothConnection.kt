@@ -16,6 +16,12 @@ abstract class ABluetoothConnection(
     val device: BluetoothDevice
 ) {
 
+    companion object {
+        const val GATT_MAX_MTU_SIZE = 517
+        const val GATT_MIN_MTU_SIZE = 23
+        const val CCC_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805F9B34FB"
+    }
+
     // 连接状态
     val isConnectedFlow = MutableStateFlow(true)
 
