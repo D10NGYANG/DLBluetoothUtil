@@ -1,4 +1,4 @@
-import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.github.D10NGYANG"
-version = "0.5.0"
+version = "0.6.0"
 
 kotlin {
     androidTarget {
@@ -18,11 +18,22 @@ kotlin {
         publishLibraryVariants("release")
     }
     iosArm64()
+    js {
+        browser()
+        binaries.library()
+    }
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs {
+        browser()
+        binaries.library()
+    }
     
     sourceSets {
         commonMain.dependencies {
             // 协程
             implementation(libs.kotlinx.coroutines)
+            // 日志
+            implementation(libs.dl.log)
         }
         androidMain.dependencies {
             // Android
