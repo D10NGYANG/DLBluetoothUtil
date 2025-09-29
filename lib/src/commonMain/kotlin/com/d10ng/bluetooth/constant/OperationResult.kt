@@ -13,9 +13,9 @@ sealed class OperationResult(
     // 服务发现结果
     data class DiscoverServices(override val address: String, val services: List<BleGattService>): OperationResult(address)
     // 开关通知结果
-    data class Notify(override val address: String, val serviceUuid: String, val characteristicUuid: String, val enable: Boolean, val result: Boolean): OperationResult(address)
+    data class Notify(override val address: String, val characteristic: BleGattCharacteristic, val enable: Boolean, val result: Boolean): OperationResult(address)
     // 写数据结果
-    data class Write(override val address: String, val serviceUuid: String, val characteristicUuid: String, val result: Boolean): OperationResult(address)
+    data class Write(override val address: String, val characteristic: BleGattCharacteristic, val result: Boolean): OperationResult(address)
     // MTU改变结果
     data class MtuChanged(override val address: String, val mtu: Int, val result: Boolean): OperationResult(address)
 }

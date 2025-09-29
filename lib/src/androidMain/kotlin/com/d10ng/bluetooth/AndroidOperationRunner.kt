@@ -112,7 +112,7 @@ object AndroidOperationRunner {
 
     private suspend fun notify(operation: OperationType.Notify) {
         val gatt = operation.obj as BluetoothGatt
-        val characteristic = gatt.findCharacteristic(operation.characteristicUuid, operation.serviceUuid)
+        val characteristic = gatt.findCharacteristic(operation.characteristic.uuid, operation.characteristic.serviceUuid)
         if (characteristic == null) {
             log.w { "[OperationType.Notify] fail 未找到特征" }
             OperationManager.resultFlow.tryEmit(operation.fail())
@@ -153,7 +153,7 @@ object AndroidOperationRunner {
 
     private suspend fun write(operation: OperationType.Write) {
         val gatt = operation.obj as BluetoothGatt
-        val characteristic = gatt.findCharacteristic(operation.characteristicUuid, operation.serviceUuid)
+        val characteristic = gatt.findCharacteristic(operation.characteristic.uuid, operation.characteristic.serviceUuid)
         if (characteristic == null) {
             log.w { "[OperationType.Write] fail 未找到特征" }
             OperationManager.resultFlow.tryEmit(operation.fail())

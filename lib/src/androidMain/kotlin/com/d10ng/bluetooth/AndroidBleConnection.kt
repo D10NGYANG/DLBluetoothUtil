@@ -1,8 +1,21 @@
 package com.d10ng.bluetooth
 
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothProfile
 import com.d10ng.bluetooth.constant.BleDevice
+import com.d10ng.bluetooth.constant.BleGattCharacteristic
+import com.d10ng.bluetooth.constant.BleGattEvent
+import com.d10ng.bluetooth.constant.BleGattNotifyData
 import com.d10ng.bluetooth.constant.BleGattService
+import com.d10ng.bluetooth.constant.OperationResult
+import com.d10ng.bluetooth.constant.OperationType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.util.UUID
 
 /**
  * Android蓝牙连接
@@ -14,33 +27,74 @@ class AndroidBleConnection(
     val gatt: BluetoothGatt
 ): ABleConnection(device) {
 
+    val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    init {
+        scope.launch {
+            BleGattCallbackInstant.eventFlow.collect {
+                when (it) {
+                    is BleGattEvent.OnConnectionStateChange -> {
+                        if (it.newState == BluetoothProfile.STATE_DISCONNECTED) disconnect()
+                    }
+                    is BleGattEvent.OnCharacteristicChanged -> {
+                        notifyDataFlow.tryEmit(BleGattNotifyData(it.characteristic.toBleGattCharacteristic(), it.value))
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    private fun BluetoothGattCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {
+        val targetService = this.service.uuid.toString().uppercase()
+        val targetChar = this.uuid.toString().uppercase()
+        return servicesFlow.value
+            .first { service -> service.uuid.contentEquals(targetService, true) }
+            .characteristics
+            .first { char -> char.uuid.contentEquals(targetChar, true) }
+    }
 
     override suspend fun discoverServices(): List<BleGattService> {
-        TODO("Not yet implemented")
+        val result = OperationManager.execute<OperationResult.DiscoverServices>(OperationType.DiscoverServices(device.address, gatt))
+        if (result == null || result.services.isEmpty()) throw Exception("discover services failed")
+        servicesFlow.value = result.services
+        return result.services
     }
 
     override suspend fun requestMaxMtu(): Int {
-        TODO("Not yet implemented")
+        val result = OperationManager.execute<OperationResult.MtuChanged>(OperationType.MtuChanged(device.address, GATT_MAX_MTU_SIZE, gatt))
+        if (result == null || !result.result) {
+            log.w { "request mtu failed" }
+        } else {
+            log.i { "set mtu to ${result.mtu} success" }
+        }
+        return (if (result?.result == true) result.mtu else GATT_MIN_MTU_SIZE) - 3
     }
 
     override suspend fun write(
-        serviceUuid: String,
-        characteristicUuid: String,
+        characteristic: BleGattCharacteristic,
         value: ByteArray
     ) {
-        TODO("Not yet implemented")
+        val result = OperationManager.execute<OperationResult.Write>(OperationType.Write(device.address, characteristic, value, gatt))
+        if (result == null || !result.result) throw Exception("write failed")
     }
 
     override suspend fun notify(
-        serviceUuid: String,
-        characteristicUuid: String,
+        characteristic: BleGattCharacteristic,
         enable: Boolean
     ) {
-        TODO("Not yet implemented")
+        val result = OperationManager.execute<OperationResult.Notify>(OperationType.Notify(device.address, characteristic, enable, gatt))
+        if (result == null || !result.result) throw Exception("notify failed")
+        val ls = notifyStatusFlow.value.filter { it.uuid != characteristic.uuid }.toMutableList()
+        if (enable) ls += characteristic
+        notifyStatusFlow.value = ls
     }
 
+    @SuppressLint("MissingPermission")
     override suspend fun disconnect() {
-        TODO("Not yet implemented")
+        runCatching { gatt.close() }
+        isConnectedFlow.value = false
+        servicesFlow.value = listOf()
+        notifyStatusFlow.value = listOf()
     }
 }

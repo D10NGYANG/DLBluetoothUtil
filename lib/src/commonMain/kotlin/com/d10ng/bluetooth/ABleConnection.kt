@@ -16,7 +16,7 @@ abstract class ABleConnection(
     val device: BleDevice
 ) {
 
-    companion object Companion {
+    companion object {
         const val GATT_MAX_MTU_SIZE = 517
         const val GATT_MIN_MTU_SIZE = 23
         const val CCC_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805F9B34FB"
@@ -48,19 +48,17 @@ abstract class ABleConnection(
 
     /**
      * 写入特征值
-     * @param serviceUuid String 服务UUID
-     * @param characteristicUuid String 特征值UUID
+     * @param characteristic BleGattCharacteristic 特征值
      * @param value ByteArray 数据
      */
-    abstract suspend fun write(serviceUuid: String, characteristicUuid: String, value: ByteArray)
+    abstract suspend fun write(characteristic: BleGattCharacteristic, value: ByteArray)
 
     /**
      * 监听特征值
-     * @param serviceUuid String 服务UUID
-     * @param characteristicUuid String 特征值UUID
+     * @param characteristic BleGattCharacteristic 特征值
      * @param enable Boolean 是否开启监听
      */
-    abstract suspend fun notify(serviceUuid: String, characteristicUuid: String, enable: Boolean)
+    abstract suspend fun notify(characteristic: BleGattCharacteristic, enable: Boolean)
 
     /**
      * 断开连接

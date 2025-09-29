@@ -20,14 +20,14 @@ sealed class OperationType(
         fun success(services: List<BleGattService>) = OperationResult.DiscoverServices(address, services)
     }
     // 开关通知
-    data class Notify(override val address: String, val serviceUuid: String, val characteristicUuid: String, val enable: Boolean, val obj: Any): OperationType(address, 1000) {
-        fun fail() = OperationResult.Notify(address, serviceUuid, characteristicUuid, enable, false)
-        fun success() = OperationResult.Notify(address, serviceUuid, characteristicUuid, enable, true)
+    data class Notify(override val address: String, val characteristic: BleGattCharacteristic, val enable: Boolean, val obj: Any): OperationType(address, 1000) {
+        fun fail() = OperationResult.Notify(address, characteristic, enable, false)
+        fun success() = OperationResult.Notify(address, characteristic, enable, true)
     }
     // 写数据
-    class Write(override val address: String, val serviceUuid: String, val characteristicUuid: String, val value: ByteArray, val obj: Any): OperationType(address, 1000) {
-        fun fail() = OperationResult.Write(address, serviceUuid, characteristicUuid, false)
-        fun success() = OperationResult.Write(address, serviceUuid, characteristicUuid, true)
+    class Write(override val address: String, val characteristic: BleGattCharacteristic, val value: ByteArray, val obj: Any): OperationType(address, 1000) {
+        fun fail() = OperationResult.Write(address, characteristic, false)
+        fun success() = OperationResult.Write(address, characteristic, true)
     }
     // MTU改变
     data class MtuChanged(override val address: String, val mtu: Int, val obj: Any): OperationType(address, 1000) {
