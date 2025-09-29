@@ -12,13 +12,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import androidx.activity.result.contract.ActivityResultContracts
+import android.os.Build
+import com.d10ng.app.managers.ActivityManager
+import com.d10ng.app.managers.PermissionManager
+import com.d10ng.app.status.isLocationEnabled
 import com.d10ng.bluetooth.constant.BluetoothDevice
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resumeWithException
 
 /**
  * 蓝牙管理
@@ -80,32 +81,30 @@ object AndroidBluetoothManager: ABluetoothManager() {
         return true
     }
 
-    override suspend fun enable() = suspendCancellableCoroutine { coroutine ->
+    override suspend fun enable() {
+        if (!isSupported()) {
+            // 设备不支持蓝牙
+            throw Exception("Device does not support Bluetooth")
+        }
         if (bluetoothAdapter?.isEnabled == true) {
             // 蓝牙已开启
             log.d { "Bluetooth is enabled" }
-            coroutine.resume(Unit) { cause, _, _ -> null }
-            return@suspendCancellableCoroutine
+            return
         }
-        val act = CurrentActivityHolder.currentActivity
+        val act = ActivityManager.top()
         if (act == null) {
             // 没有当前活动
-            coroutine.resumeWithException(Exception("No activity to enable Bluetooth"))
-            return@suspendCancellableCoroutine
+            throw Exception("No activity to enable Bluetooth")
         }
         // 开启蓝牙
-        val launcher = act.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
-                // 用户同意开启
-                log.i { "user agrees to enable Bluetooth" }
-            } else {
-                // 用户拒绝开启
-                log.w { "User does not agree to enable Bluetooth" }
-            }
-            coroutine.resume(Unit) { cause, _, _ -> null }
+        val result = ActivityManager.startActivityForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+        if (result.resultCode == Activity.RESULT_OK) {
+            // 用户同意开启
+            log.i { "user agrees to enable Bluetooth" }
+        } else {
+            // 用户拒绝开启
+            log.w { "User does not agree to enable Bluetooth" }
         }
-        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-        launcher.launch(intent)
     }
 
     @SuppressLint("MissingPermission")
@@ -113,6 +112,21 @@ object AndroidBluetoothManager: ABluetoothManager() {
         val scanner = bluetoothScanner
         if (scanner == null) {
             close(IllegalStateException("Bluetooth scanner not available"))
+            return@callbackFlow
+        }
+
+        // 如果Android API小于30，需要请求定位权限
+        val isAndroidOver30 = Build.VERSION.SDK_INT > Build.VERSION_CODES.R
+        if (!isAndroidOver30 && !PermissionManager.request(locationPermissionArray)) {
+            close(Exception("missing location permission"))
+            return@callbackFlow
+        }
+        if (!isAndroidOver30 && !isLocationEnabled()) {
+            close(Exception("location off"))
+            return@callbackFlow
+        }
+        if (!PermissionManager.request(bluetoothPermissionArray)) {
+            close(Exception("missing bluetooth permission"))
             return@callbackFlow
         }
 

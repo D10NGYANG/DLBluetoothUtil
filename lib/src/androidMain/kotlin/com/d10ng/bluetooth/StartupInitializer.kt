@@ -17,7 +17,6 @@ internal class StartupInitializer : Initializer<Unit> {
 
     override fun create(context: Context) {
         application = context as Application
-        CurrentActivityHolder.init(application)
     }
 
     override fun dependencies(): MutableList<Class<out Initializer<*>>> {

@@ -42,6 +42,8 @@ kotlin {
             implementation(libs.kotlinx.coroutines.android)
             // startup
             implementation(libs.androidx.startup.runtime)
+            // APP通用工具
+            implementation(libs.dl.app)
         }
     }
 }
