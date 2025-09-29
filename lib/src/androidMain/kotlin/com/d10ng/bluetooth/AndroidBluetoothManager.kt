@@ -138,6 +138,13 @@ object AndroidBluetoothManager: ABluetoothManager() {
                 trySend(bleDevice)
             }
 
+            override fun onBatchScanResults(results: List<ScanResult?>?) {
+                // 批量结果，表示扫描结束
+                log.d { "[ScanCallback.onBatchScanResults] results: $results" }
+                // 结束
+                close()
+            }
+
             override fun onScanFailed(errorCode: Int) {
                 close(Exception("Scan failed with error code $errorCode"))
             }
