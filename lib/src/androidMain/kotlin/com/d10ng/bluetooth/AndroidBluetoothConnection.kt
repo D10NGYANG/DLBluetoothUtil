@@ -1,5 +1,6 @@
 package com.d10ng.bluetooth
 
+import android.bluetooth.BluetoothGatt
 import com.d10ng.bluetooth.constant.BluetoothDevice
 import com.d10ng.bluetooth.constant.BluetoothGattService
 
@@ -9,7 +10,8 @@ import com.d10ng.bluetooth.constant.BluetoothGattService
  * @Date 2025/9/29 15:07
  */
 class AndroidBluetoothConnection(
-    device: BluetoothDevice
+    device: BluetoothDevice,
+    val gatt: BluetoothGatt
 ): ABluetoothConnection(device) {
 
 

@@ -3,6 +3,7 @@ package com.d10ng.bluetooth
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
@@ -17,6 +18,8 @@ import com.d10ng.app.managers.ActivityManager
 import com.d10ng.app.managers.PermissionManager
 import com.d10ng.app.status.isLocationEnabled
 import com.d10ng.bluetooth.constant.BluetoothDevice
+import com.d10ng.bluetooth.constant.OperationResult
+import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -159,6 +162,8 @@ object AndroidBluetoothManager: ABluetoothManager() {
     }
 
     override suspend fun connect(device: BluetoothDevice): ABluetoothConnection {
-        TODO("Not yet implemented")
+        val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address))
+        if (result == null || !result.result) throw Exception("Connect failed")
+        return AndroidBluetoothConnection(device, result.obj as BluetoothGatt)
     }
 }
