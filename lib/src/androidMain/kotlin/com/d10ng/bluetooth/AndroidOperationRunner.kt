@@ -18,6 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.toKotlinUuid
 
 /**
  * Android操作执行器
@@ -75,6 +77,7 @@ object AndroidOperationRunner {
         OperationManager.resultFlow.tryEmit(operation.success(event.gatt))
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     private suspend fun discoverServices(operation: OperationType.DiscoverServices) {
         val gatt = operation.obj as BluetoothGatt
         if (!gatt.discoverServices()) {
@@ -93,11 +96,11 @@ object AndroidOperationRunner {
             gatt.services.forEach { serviceUuid ->
                 gatt.getService(serviceUuid.uuid)?.let { service ->
                     val serviceItem = BleGattService(
-                        service.uuid.toString().uppercase(),
+                        service.uuid.toKotlinUuid(),
                         service.characteristics.map { characteristic ->
                             BleGattCharacteristic(
-                                characteristic.uuid.toString().uppercase(),
-                                service.uuid.toString().uppercase(),
+                                characteristic.uuid.toKotlinUuid(),
+                                service.uuid.toKotlinUuid(),
                                 BleGattCharacteristicProperty.fromValue(characteristic.properties)
                             )
                         }
@@ -110,6 +113,7 @@ object AndroidOperationRunner {
         OperationManager.resultFlow.tryEmit(operation.success(list))
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     private suspend fun notify(operation: OperationType.Notify) {
         val gatt = operation.obj as BluetoothGatt
         val characteristic = gatt.findCharacteristic(operation.characteristic.uuid, operation.characteristic.serviceUuid)
@@ -151,6 +155,7 @@ object AndroidOperationRunner {
         OperationManager.resultFlow.tryEmit(operation.success())
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     private suspend fun write(operation: OperationType.Write) {
         val gatt = operation.obj as BluetoothGatt
         val characteristic = gatt.findCharacteristic(operation.characteristic.uuid, operation.characteristic.serviceUuid)

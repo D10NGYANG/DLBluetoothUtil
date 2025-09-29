@@ -15,7 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.util.UUID
+import kotlin.uuid.ExperimentalUuidApi
 
 /**
  * Android蓝牙连接
@@ -45,13 +45,12 @@ class AndroidBleConnection(
         }
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     private fun BluetoothGattCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {
-        val targetService = this.service.uuid.toString().uppercase()
-        val targetChar = this.uuid.toString().uppercase()
         return servicesFlow.value
-            .first { service -> service.uuid.contentEquals(targetService, true) }
+            .first { service -> service.uuid == this.service.uuid }
             .characteristics
-            .first { char -> char.uuid.contentEquals(targetChar, true) }
+            .first { char -> char.uuid == this.uuid }
     }
 
     override suspend fun discoverServices(): List<BleGattService> {
@@ -79,6 +78,7 @@ class AndroidBleConnection(
         if (result == null || !result.result) throw Exception("write failed")
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     override suspend fun notify(
         characteristic: BleGattCharacteristic,
         enable: Boolean

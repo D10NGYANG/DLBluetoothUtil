@@ -6,7 +6,8 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.os.Build
-import java.util.UUID
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /**
  * 蓝牙工具类
@@ -22,23 +23,22 @@ import java.util.UUID
  * @param serviceUuid 服务UUID
  * @return BluetoothGattCharacteristic?
  */
+@OptIn(ExperimentalUuidApi::class)
 fun BluetoothGatt.findCharacteristic(
-    characteristicUuid: String,
-    serviceUuid: String? = null
+    characteristicUuid: Uuid,
+    serviceUuid: Uuid? = null
 ): BluetoothGattCharacteristic? {
-    val sUuid = UUID.fromString(serviceUuid)
-    val cUuid = UUID.fromString(characteristicUuid)
     return if (serviceUuid != null) {
         // If serviceUuid is available, use it to disambiguate cases where multiple services have
         // distinct characteristics that happen to use the same UUID
         services
-            ?.firstOrNull { it.uuid == sUuid }
-            ?.characteristics?.firstOrNull { it.uuid == cUuid }
+            ?.firstOrNull { it.uuid == serviceUuid }
+            ?.characteristics?.firstOrNull { it.uuid == characteristicUuid }
     } else {
         // Iterate through services and find the first one with a match for the characteristic UUID
         services?.forEach { service ->
             service.characteristics?.firstOrNull { characteristic ->
-                characteristic.uuid == cUuid
+                characteristic.uuid == characteristicUuid
             }?.let { matchingCharacteristic ->
                 return matchingCharacteristic
             }
