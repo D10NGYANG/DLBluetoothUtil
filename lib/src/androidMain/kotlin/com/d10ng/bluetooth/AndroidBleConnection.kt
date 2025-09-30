@@ -11,6 +11,7 @@ import com.d10ng.bluetooth.constant.BleGattNotifyData
 import com.d10ng.bluetooth.constant.BleGattService
 import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,21 +30,31 @@ class AndroidBleConnection(
 
     val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    private val ready = CompletableDeferred<Unit>()
+
     init {
         scope.launch {
-            BleGattCallbackInstant.eventFlow.collect {
-                when (it) {
-                    is BleGattEvent.OnConnectionStateChange -> {
-                        if (it.newState == BluetoothProfile.STATE_DISCONNECTED) disconnect()
+            launch {
+                BleGattCallbackInstant.eventFlow.collect {
+                    when (it) {
+                        is BleGattEvent.OnConnectionStateChange -> {
+                            if (it.newState == BluetoothProfile.STATE_DISCONNECTED) disconnect()
+                        }
+                        is BleGattEvent.OnCharacteristicChanged -> {
+                            notifyDataFlow.tryEmit(BleGattNotifyData(it.characteristic.toBleGattCharacteristic(), it.value))
+                        }
+                        else -> {}
                     }
-                    is BleGattEvent.OnCharacteristicChanged -> {
-                        notifyDataFlow.tryEmit(BleGattNotifyData(it.characteristic.toBleGattCharacteristic(), it.value))
-                    }
-                    else -> {}
                 }
             }
+            ready.complete(Unit)
         }
     }
+
+    /**
+     * 等待初始化完成
+     */
+    suspend fun awaitReady() = ready.await()
 
     @OptIn(ExperimentalUuidApi::class)
     private fun BluetoothGattCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {

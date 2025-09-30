@@ -84,7 +84,7 @@ object BleGattCallbackInstant: BluetoothGattCallback() {
     suspend inline fun <reified T : BleGattEvent> first(
         address: String,
         crossinline predicate: (T) -> Boolean = { true }
-    ): T? = eventFlow.first {
+    ): T = eventFlow.first {
         it is T && it.gatt.device.address.contentEquals(address, true) && predicate(it)
     } as T
 }

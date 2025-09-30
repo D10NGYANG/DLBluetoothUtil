@@ -11,5 +11,7 @@ import kotlin.uuid.Uuid
 @OptIn(ExperimentalUuidApi::class)
 data class BleGattService(
     val uuid: Uuid,
-    val characteristics: List<BleGattCharacteristic>
+    val characteristics: List<BleGattCharacteristic>,
+    // 平台对象
+    val obj: Any? = null
 )

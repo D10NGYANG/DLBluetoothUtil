@@ -167,6 +167,8 @@ object AndroidBleManager: ABleManager() {
     override suspend fun connect(device: BleDevice): ABleConnection {
         val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, device))
         if (result == null || !result.result) throw Exception("Connect failed")
-        return AndroidBleConnection(device, result.obj as BluetoothGatt)
+        val connection = AndroidBleConnection(device, result.obj as BluetoothGatt)
+        connection.awaitReady()
+        return connection
     }
 }

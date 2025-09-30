@@ -12,5 +12,7 @@ import kotlin.uuid.Uuid
 data class BleGattCharacteristic(
     val uuid: Uuid,
     val serviceUuid: Uuid,
-    val properties: Set<BleGattCharacteristicProperty>
+    val properties: Set<BleGattCharacteristicProperty>,
+    // 平台对象
+    val obj: Any? = null
 )

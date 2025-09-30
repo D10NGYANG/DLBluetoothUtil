@@ -68,7 +68,7 @@ object AndroidOperationRunner {
         val device = operation.obj as BluetoothDevice
         device.connectGatt(ctx, false, BleGattCallbackInstant)
         val event = BleGattCallbackInstant.first<BleGattEvent.OnConnectionStateChange>(operation.address)
-        if (event == null || event.status != BluetoothGatt.GATT_SUCCESS) {
+        if (event.status != BluetoothGatt.GATT_SUCCESS) {
             log.w { "[OperationType.Connect] fail 连接失败" }
             OperationManager.resultFlow.tryEmit(operation.fail())
             return
@@ -85,14 +85,14 @@ object AndroidOperationRunner {
             OperationManager.resultFlow.tryEmit(operation.fail())
             return
         }
-        val discoverServicesEvent = BleGattCallbackInstant.first<BleGattEvent.OnServicesDiscovered>(operation.address)
-        if (discoverServicesEvent == null || discoverServicesEvent.status != BluetoothGatt.GATT_SUCCESS) {
+        val event = BleGattCallbackInstant.first<BleGattEvent.OnServicesDiscovered>(operation.address)
+        if (event.status != BluetoothGatt.GATT_SUCCESS) {
             log.w { "[OperationType.DiscoverServices] fail 获取服务失败" }
             OperationManager.resultFlow.tryEmit(operation.fail())
             return
         }
         val list = mutableListOf<BleGattService>()
-        discoverServicesEvent.gatt.let { gatt ->
+        event.gatt.let { gatt ->
             gatt.services.forEach { serviceUuid ->
                 gatt.getService(serviceUuid.uuid)?.let { service ->
                     val serviceItem = BleGattService(
@@ -101,9 +101,11 @@ object AndroidOperationRunner {
                             BleGattCharacteristic(
                                 characteristic.uuid.toKotlinUuid(),
                                 service.uuid.toKotlinUuid(),
-                                BleGattCharacteristicProperty.fromValue(characteristic.properties)
+                                BleGattCharacteristicProperty.fromValue(characteristic.properties),
+                                characteristic
                             )
-                        }
+                        },
+                        service
                     )
                     list.add(serviceItem)
                 }
@@ -143,10 +145,10 @@ object AndroidOperationRunner {
         else
             BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
         descriptor.executeWrite(gatt, value)
-        val descriptorWriteEvent = BleGattCallbackInstant.first<BleGattEvent.OnDescriptorWrite>(operation.address) {
+        val event = BleGattCallbackInstant.first<BleGattEvent.OnDescriptorWrite>(operation.address) {
             it.descriptor.uuid == descriptor.uuid
         }
-        if (descriptorWriteEvent == null || descriptorWriteEvent.status != BluetoothGatt.GATT_SUCCESS) {
+        if (event.status != BluetoothGatt.GATT_SUCCESS) {
             log.w { "[OperationType.Notify] fail 设置通知失败" }
             OperationManager.resultFlow.tryEmit(operation.fail())
             return
@@ -174,10 +176,10 @@ object AndroidOperationRunner {
             }
         }
         characteristic.executeWrite(gatt, operation.value, writeType)
-        val characteristicWriteEvent = BleGattCallbackInstant.first<BleGattEvent.OnCharacteristicWrite>(operation.address) {
+        val event = BleGattCallbackInstant.first<BleGattEvent.OnCharacteristicWrite>(operation.address) {
             it.characteristic.uuid == characteristic.uuid
         }
-        if (characteristicWriteEvent == null || characteristicWriteEvent.status != BluetoothGatt.GATT_SUCCESS) {
+        if (event.status != BluetoothGatt.GATT_SUCCESS) {
             log.w { "[OperationType.Write] fail 写入特征失败" }
             OperationManager.resultFlow.tryEmit(operation.fail())
             return
@@ -193,13 +195,13 @@ object AndroidOperationRunner {
             OperationManager.resultFlow.tryEmit(operation.fail())
             return
         }
-        val mtuChangedEvent = BleGattCallbackInstant.first<BleGattEvent.OnMtuChanged>(operation.address)
-        if (mtuChangedEvent == null || mtuChangedEvent.status != BluetoothGatt.GATT_SUCCESS) {
+        val event = BleGattCallbackInstant.first<BleGattEvent.OnMtuChanged>(operation.address)
+        if (event.status != BluetoothGatt.GATT_SUCCESS) {
             log.w { "[OperationType.MtuChanged] fail 设置MTU失败" }
             OperationManager.resultFlow.tryEmit(operation.fail())
             return
         }
         log.d { "[OperationType.MtuChanged] success 设置MTU成功" }
-        OperationManager.resultFlow.tryEmit(operation.success(mtuChangedEvent.mtu))
+        OperationManager.resultFlow.tryEmit(operation.success(event.mtu))
     }
 }
