@@ -6,58 +6,12 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.os.Build
-import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 
 /**
  * 蓝牙工具类
  * @Author d10ng
  * @Date 2025/9/29 17:09
  */
-
-
-/**
- * 查找特征
- * @receiver BluetoothGatt
- * @param characteristicUuid 特征UUID
- * @param serviceUuid 服务UUID
- * @return BluetoothGattCharacteristic?
- */
-@OptIn(ExperimentalUuidApi::class)
-fun BluetoothGatt.findCharacteristic(
-    characteristicUuid: Uuid,
-    serviceUuid: Uuid? = null
-): BluetoothGattCharacteristic? {
-    return if (serviceUuid != null) {
-        // If serviceUuid is available, use it to disambiguate cases where multiple services have
-        // distinct characteristics that happen to use the same UUID
-        services
-            ?.firstOrNull { it.uuid == serviceUuid }
-            ?.characteristics?.firstOrNull { it.uuid == characteristicUuid }
-    } else {
-        // Iterate through services and find the first one with a match for the characteristic UUID
-        services?.forEach { service ->
-            service.characteristics?.firstOrNull { characteristic ->
-                characteristic.uuid == characteristicUuid
-            }?.let { matchingCharacteristic ->
-                return matchingCharacteristic
-            }
-        }
-        return null
-    }
-}
-
-fun BluetoothGattCharacteristic.isWritable(): Boolean =
-    containsProperty(BluetoothGattCharacteristic.PROPERTY_WRITE)
-
-fun BluetoothGattCharacteristic.isWritableWithoutResponse(): Boolean =
-    containsProperty(BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)
-
-fun BluetoothGattCharacteristic.isNotifiable(): Boolean =
-    containsProperty(BluetoothGattCharacteristic.PROPERTY_NOTIFY)
-
-fun BluetoothGattCharacteristic.containsProperty(property: Int): Boolean =
-    properties and property != 0
 
 @SuppressLint("MissingPermission")
 fun BluetoothGattCharacteristic.executeWrite(

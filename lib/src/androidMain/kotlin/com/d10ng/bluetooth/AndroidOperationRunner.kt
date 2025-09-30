@@ -118,13 +118,8 @@ object AndroidOperationRunner {
     @OptIn(ExperimentalUuidApi::class)
     private suspend fun notify(operation: OperationType.Notify) {
         val gatt = operation.obj as BluetoothGatt
-        val characteristic = gatt.findCharacteristic(operation.characteristic.uuid, operation.characteristic.serviceUuid)
-        if (characteristic == null) {
-            log.w { "[OperationType.Notify] fail 未找到特征" }
-            OperationManager.resultFlow.tryEmit(operation.fail())
-            return
-        }
-        if (!characteristic.isNotifiable()) {
+        val characteristic = operation.characteristic.obj as BluetoothGattCharacteristic
+        if (!operation.characteristic.properties.contains(BleGattCharacteristicProperty.NOTIFY)) {
             log.w { "[OperationType.Notify] fail 特征不支持通知" }
             OperationManager.resultFlow.tryEmit(operation.fail())
             return
@@ -160,15 +155,10 @@ object AndroidOperationRunner {
     @OptIn(ExperimentalUuidApi::class)
     private suspend fun write(operation: OperationType.Write) {
         val gatt = operation.obj as BluetoothGatt
-        val characteristic = gatt.findCharacteristic(operation.characteristic.uuid, operation.characteristic.serviceUuid)
-        if (characteristic == null) {
-            log.w { "[OperationType.Write] fail 未找到特征" }
-            OperationManager.resultFlow.tryEmit(operation.fail())
-            return
-        }
+        val characteristic = operation.characteristic.obj as BluetoothGattCharacteristic
         val writeType = when {
-            characteristic.isWritable() -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            characteristic.isWritableWithoutResponse() -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            operation.characteristic.properties.contains(BleGattCharacteristicProperty.WRITE) -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            operation.characteristic.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             else -> {
                 log.w { "[OperationType.Write] fail 特征不支持写入" }
                 OperationManager.resultFlow.tryEmit(operation.fail())

@@ -1,6 +1,5 @@
 package com.d10ng.bluetooth
 
-import com.d10ng.bluetooth.constant.CBCentralManagerEvent
 import com.d10ng.bluetooth.constant.CBPeripheralEvent
 import kotlinx.cinterop.ObjCSignatureOverride
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -63,8 +62,9 @@ object CBPeripheralDelegate : NSObject(), CBPeripheralDelegateProtocol {
     ) {
         // 订阅通知更新
         val data = didUpdateValueForCharacteristic.value?.toByteArray()?: return
-        log.d { "[CBPeripheralDelegate.didUpdateValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${didUpdateValueForCharacteristic.serviceUuid}, characteristic: ${didUpdateValueForCharacteristic.characteristicUuid}, error: $error, data: ${data.toHexString(HexFormat.UpperCase)}" }
-        eventFlow.tryEmit(CBPeripheralEvent.DidUpdateValueForCharacteristic(peripheral, didUpdateValueForCharacteristic, data))
+        val ch = didUpdateValueForCharacteristic
+        log.d { "[CBPeripheralDelegate.didUpdateValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${ch.serviceUUIDString}, characteristic: ${ch.UUIDString}, error: $error, data: ${data.toHexString(HexFormat.UpperCase)}" }
+        eventFlow.tryEmit(CBPeripheralEvent.DidUpdateValueForCharacteristic(peripheral, ch, data))
     }
 
     @ObjCSignatureOverride
@@ -73,8 +73,9 @@ object CBPeripheralDelegate : NSObject(), CBPeripheralDelegateProtocol {
         didWriteValueForCharacteristic: CBCharacteristic,
         error: NSError?
     ) {
-        log.d { "[CBPeripheralDelegate.didWriteValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${didWriteValueForCharacteristic.serviceUuid}, characteristic: ${didWriteValueForCharacteristic.characteristicUuid}, error: $error" }
-        eventFlow.tryEmit(CBPeripheralEvent.DidWriteValueForCharacteristic(peripheral, didWriteValueForCharacteristic, error == null))
+        val ch = didWriteValueForCharacteristic
+        log.d { "[CBPeripheralDelegate.didWriteValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${ch.serviceUUIDString}, characteristic: ${ch.UUIDString}, error: $error" }
+        eventFlow.tryEmit(CBPeripheralEvent.DidWriteValueForCharacteristic(peripheral, ch, error == null))
     }
 
     override fun peripheral(

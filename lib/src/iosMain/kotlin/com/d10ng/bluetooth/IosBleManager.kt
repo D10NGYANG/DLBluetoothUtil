@@ -9,6 +9,11 @@ import kotlinx.coroutines.flow.Flow
  * @Date 2025/9/30 11:32
  */
 object IosBleManager: ABleManager() {
+
+    init {
+        IosOperationRunner.start()
+    }
+
     override fun isSupported(): Boolean {
         return true
     }
