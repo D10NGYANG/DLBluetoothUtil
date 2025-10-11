@@ -38,7 +38,7 @@ class AndroidBleConnection(
                 BleGattCallbackInstant.eventFlow.collect {
                     when (it) {
                         is BleGattEvent.OnConnectionStateChange -> {
-                            if (it.newState == BluetoothProfile.STATE_DISCONNECTED) disconnect()
+                            if (it.newState == BluetoothProfile.STATE_DISCONNECTED) handleDisconnected()
                         }
                         is BleGattEvent.OnCharacteristicChanged -> {
                             notifyDataFlow.tryEmit(BleGattNotifyData(it.characteristic.toBleGattCharacteristic(), it.value))
@@ -104,6 +104,10 @@ class AndroidBleConnection(
     @SuppressLint("MissingPermission")
     override suspend fun disconnect() {
         runCatching { gatt.close() }
+        handleDisconnected()
+    }
+
+    private fun handleDisconnected() {
         isConnectedFlow.value = false
         servicesFlow.value = listOf()
         notifyStatusFlow.value = listOf()

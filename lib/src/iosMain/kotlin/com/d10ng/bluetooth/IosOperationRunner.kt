@@ -27,7 +27,7 @@ object IosOperationRunner {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private val centralManager = CBCentralManager(delegate = CBCentralManagerDelegate, queue = null)
+    val centralManager = CBCentralManager(delegate = CBCentralManagerDelegate, queue = null)
 
     fun start() {
         log.d { "IosOperationRunner start" }
