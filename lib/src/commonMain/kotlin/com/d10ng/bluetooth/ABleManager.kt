@@ -44,3 +44,9 @@ abstract class ABleManager {
      */
     abstract suspend fun connect(device: BleDevice): ABleConnection
 }
+
+/**
+ * 获取平台蓝牙管理
+ * @return ABleManager
+ */
+expect fun getPlatformBleManager(): ABleManager
