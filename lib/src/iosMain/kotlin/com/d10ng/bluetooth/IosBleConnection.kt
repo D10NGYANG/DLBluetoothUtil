@@ -25,9 +25,10 @@ import kotlin.uuid.ExperimentalUuidApi
  * @Date 2025/9/30 17:20
  */
 class IosBleConnection(
-    device: BleDevice,
-    private val peripheral: CBPeripheral
+    device: BleDevice
 ) : ABleConnection(device) {
+
+    private val peripheral = device.obj as CBPeripheral
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val ready = CompletableDeferred<Unit>()

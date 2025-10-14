@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import platform.CoreBluetooth.CBCentralManager
-import platform.CoreBluetooth.CBPeripheral
 
 /**
  * ios蓝牙管理
@@ -77,7 +76,7 @@ object IosBleManager: ABleManager() {
         val peripheral = device.obj ?: throw Exception("missing peripheral object")
         val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, peripheral))
         if (result == null || !result.result) throw Exception("Connect failed")
-        val connection = IosBleConnection(device, result.obj as CBPeripheral)
+        val connection = IosBleConnection(device)
         connection.awaitReady()
         return connection
     }
