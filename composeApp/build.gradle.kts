@@ -1,4 +1,3 @@
-import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -10,16 +9,13 @@ plugins {
 
 kotlin {
     androidTarget {
-        @OptIn(ExperimentalKotlinGradlePluginApi::class)
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
         }
     }
     
     listOf(
-        //iosX64(),
-        iosArm64(),
-        //iosSimulatorArm64()
+        iosArm64()
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
             baseName = "ComposeApp"
@@ -28,7 +24,6 @@ kotlin {
     }
     
     sourceSets {
-        
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
@@ -43,7 +38,7 @@ kotlin {
             implementation(libs.jetbrains.androidx.lifecycle.viewmodel)
             implementation(libs.jetbrains.androidx.lifecycle.runtime.compose)
             // 蓝牙
-            implementation(project(":DLBluetoothUtil"))
+            implementation(project(":lib"))
         }
     }
 }
@@ -51,10 +46,6 @@ kotlin {
 android {
     namespace = "com.d10ng.bluetooth.demo"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
-
-    sourceSets["main"].manifest.srcFile("src/androidMain/AndroidManifest.xml")
-    sourceSets["main"].res.srcDirs("src/androidMain/res")
-    sourceSets["main"].resources.srcDirs("src/commonMain/resources")
 
     defaultConfig {
         applicationId = "com.d10ng.bluetooth.demo"
@@ -77,11 +68,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    buildFeatures {
-        compose = true
-    }
-    dependencies {
-        debugImplementation(compose.uiTooling)
-    }
 }
+
+dependencies {
+    debugImplementation(compose.uiTooling)
+}
+
 
