@@ -12,6 +12,7 @@ compose-multiplatform = "1.9.0"
 jetbrains-androidx-lifecycle = "2.9.4"
 kotlin = "2.2.20"
 kotlinx-coroutines = "1.10.2"
+kotlinx-datetime = "0.7.1"
 dlcommon = "0.7.0"
 dlapp = "2.6.0"
 dllogutil = "0.1.1"
@@ -26,6 +27,7 @@ jetbrains-androidx-lifecycle-viewmodel-compose = { module = "org.jetbrains.andro
 jetbrains-androidx-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "jetbrains-androidx-lifecycle" }
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
 dl-common = { module = "com.github.D10NGYANG:DLCommonUtil", version.ref = "dlcommon" }
 dl-app = { module = "com.github.D10NGYANG:DLAppUtil", version.ref = "dlapp" }
 dl-log = { module = "com.github.D10NGYANG:DLLogUtil", version.ref = "dllogutil" }

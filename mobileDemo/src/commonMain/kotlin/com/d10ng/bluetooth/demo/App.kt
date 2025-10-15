@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -69,9 +70,16 @@ import com.d10ng.bluetooth.constant.BleGattService
 import com.d10ng.bluetooth.getPlatformBleManager
 import com.d10ng.log.LogLevel
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.format
+import kotlinx.datetime.format.FormatStringsInDatetimeFormats
+import kotlinx.datetime.format.byUnicodePattern
+import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 
 sealed class Screen {
@@ -316,7 +324,8 @@ private fun ChatScreen(
     fun ChatTopBar(
         notifyStatusList: List<BleGattCharacteristic>,
         notifiableList: List<BleGattCharacteristic>,
-        onToggleNotify: (BleGattCharacteristic, Boolean) -> Unit
+        onToggleNotify: (BleGattCharacteristic, Boolean) -> Unit,
+        onClearLog: () -> Unit
     ) {
         var subsMenuExpanded by remember { mutableStateOf(false) }
         TopAppBar(
@@ -371,6 +380,10 @@ private fun ChatScreen(
                         }
                     }
                 }
+                // 清除按钮，位于订阅管理按钮右侧
+                IconButton(onClick = onClearLog) {
+                    Icon(imageVector = Icons.Filled.Delete, contentDescription = "清空记录")
+                }
             }
         )
     }
@@ -406,7 +419,7 @@ private fun ChatScreen(
     LaunchedEffect(connection) {
         connection.notifyDataFlow.collect { data ->
             val content = runCatching { data.data.decodeToString() }.getOrDefault("")
-            messages.add(ChatMessage(Clock.System.now().toEpochMilliseconds(), "RX", "${data.characteristic.uuid}: $content"))
+            messages.add(ChatMessage(Clock.System.now(), "RX", "${data.characteristic.uuid}: $content"))
             // 自动滚动至最新消息
             scope.launch { listState.animateScrollToItem(maxOf(messages.size - 1, 0)) }
         }
@@ -421,7 +434,8 @@ private fun ChatScreen(
         ChatTopBar(
             notifyStatusList = notifyStatus,
             notifiableList = notifiables,
-            onToggleNotify = { ch, enable -> scope.launch { runCatching { connection.notify(ch, enable) } } }
+            onToggleNotify = { ch, enable -> scope.launch { runCatching { connection.notify(ch, enable) } } },
+            onClearLog = { messages.clear() }
         )
     }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -430,20 +444,16 @@ private fun ChatScreen(
 
             // 订阅管理已迁移至标题栏动作，页面不再占位
 
-            // 通讯记录
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "通讯记录", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                IconButton(onClick = { messages.clear() }) {
-                    Icon(imageVector = Icons.Filled.Delete, contentDescription = "清空")
-                }
-            }
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 state = listState,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(messages.size) { idx ->
+                items(count = messages.size, key = { i ->
+                    val m = messages[i]
+                    "${m.time}-${m.dir}-${m.content.length}"
+                }) { idx ->
                     val m = messages[idx]
                     MessageBubble(msg = m)
                 }
@@ -488,7 +498,7 @@ private fun ChatScreen(
                         scope.launch {
                             runCatching { connection.write(ch, bytes) }
                                 .onSuccess {
-                                    messages.add(ChatMessage(Clock.System.now().toEpochMilliseconds(), "TX", "${ch.uuid}: ${text.trim()}"))
+                                    messages.add(ChatMessage(Clock.System.now(), "TX", "${ch.uuid}: ${text.trim()}"))
                                     input = ""
                                     listState.animateScrollToItem(maxOf(messages.size - 1, 0))
                                 }
@@ -502,36 +512,57 @@ private fun ChatScreen(
         }
     }
 }
+@OptIn(ExperimentalTime::class)
+data class ChatMessage (val time: Instant, val dir: String, val content: String)
 
-data class ChatMessage(val time: Long, val dir: String, val content: String)
+@OptIn(ExperimentalTime::class, FormatStringsInDatetimeFormats::class)
+fun Instant.toHHmmssSSS(): String {
+    return this.toLocalDateTime(TimeZone.currentSystemDefault())
+        .format(LocalDateTime.Format { byUnicodePattern("HH:mm:ss.SSS") })
+}
 
+@OptIn(ExperimentalTime::class)
 @Composable
 private fun MessageBubble(msg: ChatMessage) {
-    
-    val isTx = msg.dir == "TX"
+    val isTx = remember(msg.dir) { msg.dir == "TX" }
     val container = if (isTx) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
     val onContainer = if (isTx) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-    val (meta, payload) = run {
+    val metaPayload = remember(msg.content) {
         val parts = msg.content.split(": ", limit = 2)
         val meta = parts.getOrNull(0) ?: ""
         val body = parts.getOrNull(1) ?: msg.content
         meta to body
     }
-    Surface(color = container, tonalElevation = 2.dp, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = msg.dir, style = MaterialTheme.typography.labelMedium, color = onContainer)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = meta, style = MaterialTheme.typography.labelSmall, color = onContainer)
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            androidx.compose.foundation.text.selection.SelectionContainer {
-                Text(
-                    text = payload,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = onContainer,
-                    fontFamily = FontFamily.Monospace
-                )
+    val meta = metaPayload.first
+    val payload = metaPayload.second
+    val timeText = remember(msg.time) { msg.time.toHHmmssSSS() }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // 时间（置于文本框外）
+        Text(
+            text = timeText,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        // 特征（置于文本框外）
+        Text(
+            text = "特征：$meta",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        // 文本（圆角背景，区分 RX/TX）
+        Surface(color = container, tonalElevation = 2.dp, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                SelectionContainer {
+                    Text(
+                        text = payload,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = onContainer,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             }
         }
     }

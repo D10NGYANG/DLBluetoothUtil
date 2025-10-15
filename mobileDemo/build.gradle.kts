@@ -38,6 +38,8 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
             implementation(libs.jetbrains.androidx.lifecycle.viewmodel)
             implementation(libs.jetbrains.androidx.lifecycle.runtime.compose)
+            // datetime
+            implementation(libs.kotlinx.datetime)
             // 日志
             implementation(libs.dl.log)
             // 蓝牙
