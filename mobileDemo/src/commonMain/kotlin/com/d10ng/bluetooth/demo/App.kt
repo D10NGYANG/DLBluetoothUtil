@@ -63,6 +63,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -367,6 +374,18 @@ private fun ChatScreen(
     // 消息记录（最新消息置底）
     val messages = remember { mutableStateListOf<ChatMessage>() }
     val listState = rememberLazyListState()
+    val focusManager = LocalFocusManager.current
+    // 用户滚动列表时收起键盘（不影响程序触发的滚动）
+    val dismissKeyboardOnScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    focusManager.clearFocus(force = true)
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     // 进入页面时发现服务并自动订阅所有可通知特征
     LaunchedEffect(connection) {
@@ -406,7 +425,15 @@ private fun ChatScreen(
             // 订阅管理已迁移至标题栏动作，页面不再占位
 
             LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .nestedScroll(dismissKeyboardOnScroll)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { focusManager.clearFocus(force = true) }
+                        )
+                    },
                 state = listState,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
