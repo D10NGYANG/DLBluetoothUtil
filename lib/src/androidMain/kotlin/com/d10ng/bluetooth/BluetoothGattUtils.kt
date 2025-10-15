@@ -5,6 +5,7 @@ import android.annotation.TargetApi
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothGattService
 import android.os.Build
 
 /**
@@ -12,6 +13,12 @@ import android.os.Build
  * @Author d10ng
  * @Date 2025/9/29 17:09
  */
+
+val BluetoothGattService.UUIDString
+    get() = this.uuid.toString()
+
+val BluetoothGattCharacteristic.UUIDString
+    get() = this.uuid.toString()
 
 @SuppressLint("MissingPermission")
 fun BluetoothGattCharacteristic.executeWrite(

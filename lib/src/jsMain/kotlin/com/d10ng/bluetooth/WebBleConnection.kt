@@ -10,8 +10,6 @@ import org.khronos.webgl.DataView
 import org.khronos.webgl.Uint8Array
 import org.khronos.webgl.get
 import kotlin.js.Promise
-import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 
 /**
  * Web蓝牙连接
@@ -33,15 +31,13 @@ class WebBleConnection(
         }
     }
 
-    @OptIn(ExperimentalUuidApi::class)
     override suspend fun discoverServices(): List<BleGattService> {
         val services = (gatt.getPrimaryServices() as Promise<List<dynamic>>).await()
         val list = mutableListOf<BleGattService>()
         for (service in services) {
             val characteristics = (service.getCharacteristics() as Promise<List<dynamic>>).await()
-            val serviceUuid = Uuid.parse(service.uuid)
             list.add(BleGattService(
-                serviceUuid,
+                service.uuid,
                 characteristics.map { ch ->
                     val ps = mutableSetOf<BleGattCharacteristicProperty>()
                     if (ch.properties.broadcast) ps.add(BleGattCharacteristicProperty.BROADCAST)
@@ -52,8 +48,8 @@ class WebBleConnection(
                     if (ch.properties.indicate) ps.add(BleGattCharacteristicProperty.INDICATE)
                     if (ch.properties.authenticatedSignedWrites) ps.add(BleGattCharacteristicProperty.SIGNED_WRITE)
                     BleGattCharacteristic(
-                        Uuid.parse(ch.uuid),
-                        serviceUuid,
+                        ch.uuid,
+                        service.uuid,
                         ps,
                         ch
                     )
@@ -82,13 +78,12 @@ class WebBleConnection(
         promise.await()
     }
 
-    @OptIn(ExperimentalUuidApi::class)
     override suspend fun notify(
         characteristic: BleGattCharacteristic,
         enable: Boolean
     ) {
         val ch = characteristic.obj.asDynamic()
-        val uuidKey = characteristic.uuid.toString()
+        val uuidKey = characteristic.uuid
         if (enable) {
             log.i { "Web: start notifications ${characteristic.uuid}" }
             (ch.startNotifications() as Promise<Unit>).await()

@@ -89,20 +89,18 @@ object IosOperationRunner {
         val list = event.services.map { service ->
             device.discoverCharacteristics(null, service)
             val e = BlePeripheralEvents.first<CBPeripheralEvent.DidDiscoverCharacteristicsForService>(operation.address) {
-                runCatching {
-                    it.peripheral.address.contentEquals(device.address, true)
-                            && it.service.Uuid == service.Uuid
-                }.getOrDefault(false)
+                it.peripheral.address.contentEquals(device.address, true)
+                        && it.service.UUIDString.contentEquals(service.UUIDString, true)
             }
             service to (e.characteristics ?: listOf())
         }
         val map = list.map { (service, characteristics) ->
             BleGattService(
-                service.Uuid,
+                service.UUIDString,
                 characteristics.map { ch ->
                     BleGattCharacteristic(
-                        ch.Uuid,
-                        service.Uuid,
+                        ch.UUIDString,
+                        service.UUIDString,
                         BleGattCharacteristicProperty.fromValue(ch.properties.toInt()),
                         ch
                     )

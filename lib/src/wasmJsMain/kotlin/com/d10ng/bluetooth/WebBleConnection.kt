@@ -8,8 +8,6 @@ import com.d10ng.bluetooth.constant.BleGattCharacteristicProperty
 import com.d10ng.bluetooth.constant.BleGattNotifyData
 import com.d10ng.bluetooth.constant.BleGattService
 import kotlinx.coroutines.await
-import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 
 /**
  * Web蓝牙连接
@@ -33,15 +31,13 @@ class WebBleConnection(
         }
     }
 
-    @OptIn(ExperimentalUuidApi::class)
     override suspend fun discoverServices(): List<BleGattService> {
         val services = gatt.getPrimaryServices().await<Array<BluetoothRemoteGATTService>>()
         val list = mutableListOf<BleGattService>()
         for (service in services) {
             val characteristics = service.getCharacteristics().await<Array<BluetoothRemoteGATTCharacteristic>>()
-            val serviceUuid = Uuid.parse(service.uuid)
             list.add(BleGattService(
-                serviceUuid,
+                service.uuid,
                 characteristics.map { ch ->
                     val ps = mutableSetOf<BleGattCharacteristicProperty>()
                     if (ch.properties.broadcast) ps.add(BleGattCharacteristicProperty.BROADCAST)
@@ -52,8 +48,8 @@ class WebBleConnection(
                     if (ch.properties.indicate) ps.add(BleGattCharacteristicProperty.INDICATE)
                     if (ch.properties.authenticatedSignedWrites) ps.add(BleGattCharacteristicProperty.SIGNED_WRITE)
                     BleGattCharacteristic(
-                        Uuid.parse(ch.uuid),
-                        serviceUuid,
+                        ch.uuid,
+                        service.uuid,
                         ps,
                         ch
                     )
@@ -87,14 +83,13 @@ class WebBleConnection(
         promise.await<JsAny>()
     }
 
-    @OptIn(ExperimentalUuidApi::class)
     override suspend fun notify(
         characteristic: BleGattCharacteristic,
         enable: Boolean
     ) {
         @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
         val ch = characteristic.obj as BluetoothRemoteGATTCharacteristic
-        val uuidKey = characteristic.uuid.toString()
+        val uuidKey = characteristic.uuid
         if (enable) {
             log.i { "Web: start notifications ${characteristic.uuid}" }
             ch.startNotifications().await<JsAny>()

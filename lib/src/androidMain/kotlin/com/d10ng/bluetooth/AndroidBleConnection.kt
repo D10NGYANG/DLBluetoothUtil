@@ -17,7 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.toKotlinUuid
 
 /**
  * Android蓝牙连接
@@ -61,9 +60,9 @@ class AndroidBleConnection(
     @OptIn(ExperimentalUuidApi::class)
     private fun BluetoothGattCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {
         return servicesFlow.value
-            .first { service -> service.uuid == this.service.uuid.toKotlinUuid() }
+            .first { service -> service.uuid.contentEquals(this.service.UUIDString, true) }
             .characteristics
-            .first { char -> char.uuid == this.uuid.toKotlinUuid() }
+            .first { char -> char.uuid.contentEquals(this.UUIDString, true) }
     }
 
     override suspend fun discoverServices(): List<BleGattService> {

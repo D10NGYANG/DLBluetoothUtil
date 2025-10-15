@@ -469,7 +469,7 @@ private fun ChatScreen(
                                     modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
                                     verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    items(count = services.size, key = { i -> services[i].uuid.toString() }) { sIdx ->
+                                    items(count = services.size, key = { i -> services[i].uuid }) { sIdx ->
                                         val service = services[sIdx]
                                         Surface(
                                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -477,7 +477,7 @@ private fun ChatScreen(
                                         ) {
                                             Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                                                 Text(
-                                                    text = "服务：" + service.uuid.toString(),
+                                                    text = "服务：" + service.uuid,
                                                     style = MaterialTheme.typography.titleSmall,
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
@@ -496,7 +496,7 @@ private fun ChatScreen(
                                                     ) {
                                                         Column(modifier = Modifier.weight(1f)) {
                                                             Text(
-                                                                text = "特征：" + ch.uuid.toString(),
+                                                                text = "特征：" + ch.uuid,
                                                                 style = MaterialTheme.typography.bodyMedium,
                                                                 color = MaterialTheme.colorScheme.onSurface
                                                             )

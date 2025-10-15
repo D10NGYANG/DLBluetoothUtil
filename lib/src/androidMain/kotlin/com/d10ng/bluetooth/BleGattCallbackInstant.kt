@@ -8,7 +8,6 @@ import android.bluetooth.BluetoothGattDescriptor
 import com.d10ng.bluetooth.constant.BleGattEvent
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 蓝牙回调实例

@@ -71,9 +71,9 @@ class IosBleConnection(
     @OptIn(ExperimentalUuidApi::class)
     private fun CBCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {
         return servicesFlow.value
-            .first { service -> service.uuid == this.service!!.Uuid }
+            .first { service -> service.uuid.contentEquals(this.service!!.UUIDString, true) }
             .characteristics
-            .first { char -> char.uuid == this.Uuid }
+            .first { char -> char.uuid.contentEquals(this.UUIDString, true) }
     }
 
     override suspend fun discoverServices(): List<BleGattService> {

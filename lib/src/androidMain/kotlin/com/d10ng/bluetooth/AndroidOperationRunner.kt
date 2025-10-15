@@ -19,7 +19,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.toKotlinUuid
 
 /**
  * Android操作执行器
@@ -96,11 +95,11 @@ object AndroidOperationRunner {
             gatt.services.forEach { serviceUuid ->
                 gatt.getService(serviceUuid.uuid)?.let { service ->
                     val serviceItem = BleGattService(
-                        service.uuid.toKotlinUuid(),
+                        service.UUIDString,
                         service.characteristics.map { characteristic ->
                             BleGattCharacteristic(
-                                characteristic.uuid.toKotlinUuid(),
-                                service.uuid.toKotlinUuid(),
+                                characteristic.UUIDString,
+                                service.UUIDString,
                                 BleGattCharacteristicProperty.fromValue(characteristic.properties),
                                 characteristic
                             )
