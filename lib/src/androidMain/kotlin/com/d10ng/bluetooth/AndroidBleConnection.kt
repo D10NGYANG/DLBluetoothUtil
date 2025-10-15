@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.toKotlinUuid
 
 /**
  * Android蓝牙连接
@@ -41,7 +42,8 @@ class AndroidBleConnection(
                             if (it.newState == BluetoothProfile.STATE_DISCONNECTED) handleDisconnected()
                         }
                         is BleGattEvent.OnCharacteristicChanged -> {
-                            notifyDataFlow.tryEmit(BleGattNotifyData(it.characteristic.toBleGattCharacteristic(), it.value))
+                            val char = runCatching { it.characteristic.toBleGattCharacteristic() }.getOrNull()?: return@collect
+                            notifyDataFlow.tryEmit(BleGattNotifyData(char, it.value))
                         }
                         else -> {}
                     }
@@ -59,9 +61,9 @@ class AndroidBleConnection(
     @OptIn(ExperimentalUuidApi::class)
     private fun BluetoothGattCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {
         return servicesFlow.value
-            .first { service -> service.uuid == this.service.uuid }
+            .first { service -> service.uuid == this.service.uuid.toKotlinUuid() }
             .characteristics
-            .first { char -> char.uuid == this.uuid }
+            .first { char -> char.uuid == this.uuid.toKotlinUuid() }
     }
 
     override suspend fun discoverServices(): List<BleGattService> {

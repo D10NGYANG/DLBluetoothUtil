@@ -31,12 +31,15 @@ kotlin {
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
-            implementation(compose.material)
+            implementation(compose.material3)
             implementation(compose.ui)
+            implementation(compose.materialIconsExtended)
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
             implementation(libs.jetbrains.androidx.lifecycle.viewmodel)
             implementation(libs.jetbrains.androidx.lifecycle.runtime.compose)
+            // 日志
+            implementation(libs.dl.log)
             // 蓝牙
             implementation(project(":lib"))
         }
@@ -73,5 +76,3 @@ android {
 dependencies {
     debugImplementation(compose.uiTooling)
 }
-
-
