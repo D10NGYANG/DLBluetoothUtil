@@ -27,7 +27,7 @@ object IosOperationRunner {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    val centralManager = CBCentralManager(delegate = CBCentralManagerDelegate, queue = null)
+    internal val centralManager by lazy { CBCentralManager(delegate = CBCentralManagerDelegate, queue = null) }
 
     fun start() {
         log.d { "IosOperationRunner start" }
@@ -65,7 +65,7 @@ object IosOperationRunner {
     private suspend fun connect(operation: OperationType.Connect) {
         val device = operation.obj as CBPeripheral
         centralManager.connectPeripheral(device, null)
-        val event = CBCentralManagerDelegate.first<CBCentralManagerEvent.DidConnectResult>(operation.address)
+        val event = BleCentralEvents.first<CBCentralManagerEvent.DidConnectResult>(operation.address)
         if (event.result) {
             log.d { "[OperationType.Connect] success 连接成功" }
             OperationManager.resultFlow.tryEmit(operation.success(event.peripheral))
@@ -80,7 +80,7 @@ object IosOperationRunner {
         val device = operation.obj as CBPeripheral
         device.delegate = CBPeripheralDelegate
         device.discoverServices(null)
-        val event = CBPeripheralDelegate.first<CBPeripheralEvent.DidDiscoverServices>(operation.address)
+        val event = BlePeripheralEvents.first<CBPeripheralEvent.DidDiscoverServices>(operation.address)
         if (event.services.isNullOrEmpty()) {
             log.d { "[OperationType.DiscoverServices] fail 获取服务失败" }
             OperationManager.resultFlow.tryEmit(operation.fail())
@@ -88,9 +88,11 @@ object IosOperationRunner {
         }
         val list = event.services.map { service ->
             device.discoverCharacteristics(null, service)
-            val e = CBPeripheralDelegate.first<CBPeripheralEvent.DidDiscoverCharacteristicsForService>(operation.address) {
-                it.peripheral.address.contentEquals(device.address, true)
-                        && it.service.Uuid == service.Uuid
+            val e = BlePeripheralEvents.first<CBPeripheralEvent.DidDiscoverCharacteristicsForService>(operation.address) {
+                runCatching {
+                    it.peripheral.address.contentEquals(device.address, true)
+                            && it.service.Uuid == service.Uuid
+                }.getOrDefault(false)
             }
             service to (e.characteristics ?: listOf())
         }
@@ -138,7 +140,7 @@ object IosOperationRunner {
             }
         }
         device.writeValue(operation.value.toNSData(), characteristic, writeType)
-        val event = CBPeripheralDelegate.first<CBPeripheralEvent.DidWriteValueForCharacteristic>(device.address)
+        val event = BlePeripheralEvents.first<CBPeripheralEvent.DidWriteValueForCharacteristic>(device.address)
         if (!event.result) {
             log.w { "[OperationTypeWrite] fail 写入失败" }
             OperationManager.resultFlow.tryEmit(operation.fail())

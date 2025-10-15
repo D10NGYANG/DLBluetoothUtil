@@ -18,8 +18,10 @@ kotlin {
         iosArm64()
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
-            baseName = "ComposeApp"
+            baseName = "MobileDemo"
             isStatic = true
+            // 显式设置 iOS Framework 的 bundleId，避免编译器无法推断
+            binaryOptions["bundleId"] = "com.d10ng.bluetooth.demo.MobileDemo"
         }
     }
     

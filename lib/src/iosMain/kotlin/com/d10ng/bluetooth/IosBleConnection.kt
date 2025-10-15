@@ -34,13 +34,13 @@ class IosBleConnection(
     private val ready = CompletableDeferred<Unit>()
 
     // 用于主动断开连接
-    private val central = IosOperationRunner.centralManager
+    private val centralManager by lazy { IosOperationRunner.centralManager }
 
     init {
         scope.launch {
             // 监听中心管理器断开事件，更新连接状态
             launch {
-                CBCentralManagerDelegate.eventFlow
+                BleCentralEvents.eventFlow
                     .filter { event -> event is CBCentralManagerEvent.DidDisconnect }
                     .filter { event -> event.peripheral.address.contentEquals(peripheral.address, true) }
                     .collect { handleDisconnected() }
@@ -48,7 +48,7 @@ class IosBleConnection(
 
             // 监听特征值通知，转发为通用通知数据
             launch {
-                CBPeripheralDelegate.eventFlow
+                BlePeripheralEvents.eventFlow
                     .filter { event -> event is CBPeripheralEvent.DidUpdateValueForCharacteristic }
                     .filter { event -> event.peripheral.address.contentEquals(peripheral.address, true) }
                     .collect { event ->
@@ -108,7 +108,7 @@ class IosBleConnection(
     }
 
     override suspend fun disconnect() {
-        runCatching { central.cancelPeripheralConnection(peripheral) }
+        runCatching { centralManager.cancelPeripheralConnection(peripheral) }
         handleDisconnected()
     }
 

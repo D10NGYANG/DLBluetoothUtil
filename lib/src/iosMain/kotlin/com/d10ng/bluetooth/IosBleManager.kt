@@ -1,6 +1,7 @@
 package com.d10ng.bluetooth
 
 import com.d10ng.bluetooth.constant.BleDevice
+import com.d10ng.bluetooth.constant.CBCentralManagerEvent
 import com.d10ng.bluetooth.constant.CBManagerStateEnum
 import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
@@ -11,8 +12,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import platform.CoreBluetooth.CBCentralManager
+import kotlinx.coroutines.withContext
 
 /**
  * ios蓝牙管理
@@ -23,11 +25,13 @@ object IosBleManager: ABleManager() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    private val centralManager by lazy { IosOperationRunner.centralManager }
+
     init {
         IosOperationRunner.start()
         // 同步系统蓝牙状态到 isEnabledFlow
         scope.launch {
-            CBCentralManagerDelegate.stateFlow.collect { state ->
+            BleCentralEvents.stateFlow.collect { state ->
                 isEnabledFlow.value = state == CBManagerStateEnum.PoweredOn
             }
         }
@@ -46,12 +50,10 @@ object IosBleManager: ABleManager() {
     }
 
     override fun scan(): Flow<BleDevice> = callbackFlow {
-        val central = CBCentralManager(delegate = CBCentralManagerDelegate, queue = null)
-
         // 监听扫描事件并转发为通用设备模型
-        val job = launch {
-            CBCentralManagerDelegate.eventFlow.collect { event ->
-                if (event is com.d10ng.bluetooth.constant.CBCentralManagerEvent.DidDiscoverPeripheral) {
+        val eventsJob = launch {
+            BleCentralEvents.eventFlow.collect { event ->
+                if (event is CBCentralManagerEvent.DidDiscoverPeripheral) {
                     val device = BleDevice(
                         name = event.name,
                         address = event.peripheral.address,
@@ -63,12 +65,15 @@ object IosBleManager: ABleManager() {
             }
         }
 
-        // 开始扫描（不指定服务）
-        central.scanForPeripheralsWithServices(null, null)
+        withContext(Dispatchers.Main) {
+            centralManager.stopScan()
+            centralManager.scanForPeripheralsWithServices(null, null)
+            log.d { "开始扫描" }
+        }
 
         awaitClose {
-            runCatching { central.stopScan() }
-            job.cancel()
+            centralManager.stopScan()
+            eventsJob.cancel()
         }
     }
 
