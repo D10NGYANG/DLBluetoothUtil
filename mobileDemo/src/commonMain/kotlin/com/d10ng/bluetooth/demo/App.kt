@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -37,6 +38,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,6 +63,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.d10ng.bluetooth.ABleConnection
 import com.d10ng.bluetooth.BluetoothManagerLog
 import com.d10ng.bluetooth.constant.BleDevice
@@ -343,39 +347,61 @@ private fun ChatScreen(
                             Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "订阅管理")
                         }
                     }
-                    DropdownMenu(expanded = subsMenuExpanded, onDismissRequest = { subsMenuExpanded = false }) {
-                        notifiableList.forEachIndexed { idx, ch: BleGattCharacteristic ->
-                            val subscribed = notifyStatusList.any { it.uuid == ch.uuid }
-                            DropdownMenuItem(
-                                onClick = {},
-                                text = {
-                                    Column {
-                                        // 特征UUID：深色粗体
+                    if (subsMenuExpanded) {
+                        Dialog(
+                            onDismissRequest = { subsMenuExpanded = false },
+                            properties = DialogProperties(usePlatformDefaultWidth = false)
+                        ) {
+                            // 让弹窗充满页面宽度，并在左右留 16.dp 边距
+                            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                                Surface(
+                                    shape = MaterialTheme.shapes.medium,
+                                    tonalElevation = 6.dp,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                                         Text(
-                                            text = "特征：" + ch.uuid.toString(),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            text = "订阅通知管理",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        // 服务UUID：浅色小字号
-                                        Text(
-                                            text = "服务：" + ch.serviceUuid.toString(),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                trailingIcon = {
-                                    Switch(
-                                        checked = subscribed,
-                                        onCheckedChange = { enable ->
-                                            onToggleNotify(ch, enable)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        notifiableList.forEachIndexed { idx, ch: BleGattCharacteristic ->
+                                            val subscribed = notifyStatusList.any { it.uuid == ch.uuid }
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "特征：" + ch.uuid.toString(),
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = "服务：" + ch.serviceUuid.toString(),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Switch(
+                                                    checked = subscribed,
+                                                    onCheckedChange = { enable -> onToggleNotify(ch, enable) }
+                                                )
+                                            }
+                                            if (idx < notifiableList.size - 1) {
+                                                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                                            }
                                         }
-                                    )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                            TextButton(onClick = { subsMenuExpanded = false }) { Text("关闭") }
+                                        }
+                                    }
                                 }
-                            )
-                            if (idx < notifiableList.size - 1) {
-                                HorizontalDivider()
                             }
                         }
                     }
@@ -530,7 +556,7 @@ private fun MessageBubble(msg: ChatMessage) {
     val metaPayload = remember(msg.content) {
         val parts = msg.content.split(": ", limit = 2)
         val meta = parts.getOrNull(0) ?: ""
-        val body = parts.getOrNull(1) ?: msg.content
+        val body = (parts.getOrNull(1) ?: msg.content).trim()
         meta to body
     }
     val meta = metaPayload.first
@@ -553,7 +579,7 @@ private fun MessageBubble(msg: ChatMessage) {
         )
         Spacer(modifier = Modifier.height(6.dp))
         // 文本（圆角背景，区分 RX/TX）
-        Surface(color = container, tonalElevation = 2.dp, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+        Surface(color = container, tonalElevation = 2.dp, shape = RoundedCornerShape(bottomEnd = 8.dp, bottomStart = 8.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                 SelectionContainer {
                     Text(
