@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -600,8 +601,10 @@ fun Instant.toHHmmssSSS(): String {
 @Composable
 private fun MessageBubble(msg: ChatMessage) {
     val isTx = remember(msg.dir) { msg.dir == "TX" }
-    val container = if (isTx) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
-    val onContainer = if (isTx) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+    // 更鲜明的颜色区分：TX 使用 primaryContainer，RX 使用 tertiaryContainer
+    val container = if (isTx) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer
+    val onContainer = if (isTx) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onTertiaryContainer
+    val borderColor = if (isTx) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
     val metaPayload = remember(msg.content) {
         val parts = msg.content.split(": ", limit = 2)
         val meta = parts.getOrNull(0) ?: ""
@@ -627,8 +630,16 @@ private fun MessageBubble(msg: ChatMessage) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(6.dp))
-        // 文本（圆角背景，区分 RX/TX）
-        Surface(color = container, tonalElevation = 2.dp, shape = RoundedCornerShape(bottomEnd = 8.dp, bottomStart = 8.dp), modifier = Modifier.fillMaxWidth()) {
+        // 文本（圆角背景 + 边框，增强 RX/TX 区分）
+        val bubbleShape = RoundedCornerShape(bottomEnd = 8.dp, bottomStart = 8.dp)
+        Surface(
+            color = container,
+            tonalElevation = 2.dp,
+            shape = bubbleShape,
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(width = 1.dp, color = borderColor, shape = bubbleShape)
+        ) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                 SelectionContainer {
                     Text(
