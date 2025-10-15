@@ -30,7 +30,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Bluetooth
-import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -343,7 +343,7 @@ private fun ChatScreen(
                 Box {
                     BadgedBox(badge = { Badge { Text("${notifyStatusList.size}") } }) {
                         IconButton(onClick = onOpenServiceDialog) {
-                            Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "服务特征管理")
+                            Icon(imageVector = Icons.Outlined.Settings, contentDescription = "服务特征管理")
                         }
                     }
                 }
@@ -416,14 +416,6 @@ private fun ChatScreen(
                 }) { idx ->
                     val m = messages[idx]
                     MessageBubble(msg = m)
-                }
-            }
-            // 发送特征选择（输入框上方）
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box {
-                    FilledTonalButton(onClick = { serviceDialogExpanded = true }) {
-                        Text(text = selectedChar?.let { "写入特征：${it.uuid}" } ?: "选择可写特征")
-                    }
                 }
             }
 
