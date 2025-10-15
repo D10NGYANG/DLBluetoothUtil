@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Bluetooth
@@ -33,12 +36,9 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,6 +48,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -327,11 +328,9 @@ private fun ChatScreen(
     @Composable
     fun ChatTopBar(
         notifyStatusList: List<BleGattCharacteristic>,
-        notifiableList: List<BleGattCharacteristic>,
-        onToggleNotify: (BleGattCharacteristic, Boolean) -> Unit,
+        onOpenServiceDialog: () -> Unit,
         onClearLog: () -> Unit
     ) {
-        var subsMenuExpanded by remember { mutableStateOf(false) }
         TopAppBar(
             title = { Text(text = connection.device.name ?: "Unknown") },
             navigationIcon = {
@@ -340,69 +339,11 @@ private fun ChatScreen(
                 }
             },
             actions = {
-                // 订阅管理：图标 + 数字徽标，点击展开列表
+                // 服务特征管理：图标 + 数字徽标，点击打开统一弹窗
                 Box {
                     BadgedBox(badge = { Badge { Text("${notifyStatusList.size}") } }) {
-                        IconButton(onClick = { subsMenuExpanded = true }) {
-                            Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "订阅管理")
-                        }
-                    }
-                    if (subsMenuExpanded) {
-                        Dialog(
-                            onDismissRequest = { subsMenuExpanded = false },
-                            properties = DialogProperties(usePlatformDefaultWidth = false)
-                        ) {
-                            // 让弹窗充满页面宽度，并在左右留 16.dp 边距
-                            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                                Surface(
-                                    shape = MaterialTheme.shapes.medium,
-                                    tonalElevation = 6.dp,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                                        Text(
-                                            text = "订阅通知管理",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        notifiableList.forEachIndexed { idx, ch: BleGattCharacteristic ->
-                                            val subscribed = notifyStatusList.any { it.uuid == ch.uuid }
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 8.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = "特征：" + ch.uuid.toString(),
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    Text(
-                                                        text = "服务：" + ch.serviceUuid.toString(),
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                                Switch(
-                                                    checked = subscribed,
-                                                    onCheckedChange = { enable -> onToggleNotify(ch, enable) }
-                                                )
-                                            }
-                                            if (idx < notifiableList.size - 1) {
-                                                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                            TextButton(onClick = { subsMenuExpanded = false }) { Text("关闭") }
-                                        }
-                                    }
-                                }
-                            }
+                        IconButton(onClick = onOpenServiceDialog) {
+                            Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "服务特征管理")
                         }
                     }
                 }
@@ -451,23 +392,16 @@ private fun ChatScreen(
         }
     }
 
-    val writables = services.flatMap { it.characteristics }
-        .filter { it.properties.contains(BleGattCharacteristicProperty.WRITE) || it.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) }
-    val notifiables = services.flatMap { it.characteristics }
-        .filter { it.properties.contains(BleGattCharacteristicProperty.NOTIFY) || it.properties.contains(BleGattCharacteristicProperty.INDICATE) }
+    var serviceDialogExpanded by remember { mutableStateOf(false) }
 
     Scaffold(topBar = {
         ChatTopBar(
             notifyStatusList = notifyStatus,
-            notifiableList = notifiables,
-            onToggleNotify = { ch, enable -> scope.launch { runCatching { connection.notify(ch, enable) } } },
+            onOpenServiceDialog = { serviceDialogExpanded = true },
             onClearLog = { messages.clear() }
         )
     }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // 订阅数量显示合并入订阅管理标题，减少顶部拥挤
-            var dropdownExpanded by remember { mutableStateOf(false) }
-
             // 订阅管理已迁移至标题栏动作，页面不再占位
 
             LazyColumn(
@@ -487,21 +421,144 @@ private fun ChatScreen(
             // 发送特征选择（输入框上方）
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box {
-                    AssistChip(
-                        onClick = { dropdownExpanded = true },
-                        label = { Text(selectedChar?.let { "特征: ${it.uuid}" } ?: "选择可写特征") },
-                        leadingIcon = { Icon(imageVector = Icons.Outlined.Bluetooth, contentDescription = null) },
-                        modifier = Modifier
-                    )
-                    DropdownMenu(expanded = dropdownExpanded, onDismissRequest = { dropdownExpanded = false }) {
-                        writables.forEach { ch ->
-                            DropdownMenuItem(
-                                text = { Text(text = "${ch.serviceUuid} -> ${ch.uuid}") },
-                                onClick = {
-                                    selectedChar = ch
-                                    dropdownExpanded = false
+                    FilledTonalButton(onClick = { serviceDialogExpanded = true }) {
+                        Text(text = selectedChar?.let { "写入特征：${it.uuid}" } ?: "选择可写特征")
+                    }
+                }
+            }
+
+            // 统一的服务特征列表弹窗
+            if (serviceDialogExpanded) {
+                Dialog(
+                    onDismissRequest = { serviceDialogExpanded = false },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            tonalElevation = 6.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                                Text(
+                                    text = "服务特征列表",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // 属性颜色与标签
+                                fun propLabel(prop: BleGattCharacteristicProperty): String = when (prop) {
+                                    BleGattCharacteristicProperty.BROADCAST -> "BROADCAST"
+                                    BleGattCharacteristicProperty.READ -> "READ"
+                                    BleGattCharacteristicProperty.WRITE_NO_RESPONSE -> "WRITE_NR"
+                                    BleGattCharacteristicProperty.WRITE -> "WRITE"
+                                    BleGattCharacteristicProperty.NOTIFY -> "NOTIFY"
+                                    BleGattCharacteristicProperty.INDICATE -> "INDICATE"
+                                    BleGattCharacteristicProperty.SIGNED_WRITE -> "SIGNED_WRITE"
+                                    BleGattCharacteristicProperty.EXTENDED_PROPS -> "EXTENDED"
                                 }
-                            )
+                                @Composable
+                                fun propColors(prop: BleGattCharacteristicProperty): Pair<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color> {
+                                    return when (prop) {
+                                        BleGattCharacteristicProperty.READ -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+                                        BleGattCharacteristicProperty.WRITE -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+                                        BleGattCharacteristicProperty.WRITE_NO_RESPONSE -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f) to MaterialTheme.colorScheme.onPrimaryContainer
+                                        BleGattCharacteristicProperty.NOTIFY -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+                                        BleGattCharacteristicProperty.INDICATE -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f) to MaterialTheme.colorScheme.onTertiaryContainer
+                                        BleGattCharacteristicProperty.BROADCAST -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+                                        BleGattCharacteristicProperty.SIGNED_WRITE -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f) to MaterialTheme.colorScheme.onSurfaceVariant
+                                        BleGattCharacteristicProperty.EXTENDED_PROPS -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f) to MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                }
+
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(count = services.size, key = { i -> services[i].uuid.toString() }) { sIdx ->
+                                        val service = services[sIdx]
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                                Text(
+                                                    text = "服务：" + service.uuid.toString(),
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+
+                                                service.characteristics.forEachIndexed { cIdx, ch ->
+                                                    val props = ch.properties
+                                                    val isNotifiable = props.contains(BleGattCharacteristicProperty.NOTIFY)
+                                                    val subscribed = notifyStatus.any { it.uuid == ch.uuid }
+
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(vertical = 8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Text(
+                                                                text = "特征：" + ch.uuid.toString(),
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                color = MaterialTheme.colorScheme.onSurface
+                                                            )
+                                                            Spacer(modifier = Modifier.height(6.dp))
+                                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                                props.forEach { p ->
+                                                                    val (bg, fg) = propColors(p)
+                                                                    val shape = RoundedCornerShape(8.dp)
+                                                                    if (p == BleGattCharacteristicProperty.WRITE || p == BleGattCharacteristicProperty.WRITE_NO_RESPONSE) {
+                                                                        // 可写特征：点击选择为写入特征（单选）
+                                                                        val selected = selectedChar?.uuid == ch.uuid
+                                                                        Box(
+                                                                            modifier = Modifier
+                                                                                .background(bg, shape)
+                                                                                .clickable { selectedChar = ch }
+                                                                        ) {
+                                                                            Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                                                if (selected) {
+                                                                                    Icon(imageVector = Icons.Filled.Check, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
+                                                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                                                }
+                                                                                Text(text = propLabel(p), color = fg, style = MaterialTheme.typography.labelSmall)
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        Surface(color = bg, shape = shape) {
+                                                                            Text(text = propLabel(p), color = fg, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        if (isNotifiable) {
+                                                            Switch(
+                                                                checked = subscribed,
+                                                                onCheckedChange = { enable ->
+                                                                    scope.launch { runCatching { connection.notify(ch, enable) } }
+                                                                }
+                                                            )
+                                                        }
+                                                    }
+                                                    if (cIdx < service.characteristics.size - 1) {
+                                                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    TextButton(onClick = { serviceDialogExpanded = false }) { Text("关闭") }
+                                }
+                            }
                         }
                     }
                 }
