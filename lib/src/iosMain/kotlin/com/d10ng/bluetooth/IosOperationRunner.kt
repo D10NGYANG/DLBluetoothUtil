@@ -138,13 +138,18 @@ object IosOperationRunner {
             }
         }
         device.writeValue(operation.value.toNSData(), characteristic, writeType)
-        val event = BlePeripheralEvents.first<CBPeripheralEvent.DidWriteValueForCharacteristic>(device.address)
-        if (!event.result) {
-            log.w { "[OperationTypeWrite] fail 写入失败" }
-            OperationManager.resultFlow.tryEmit(operation.fail())
-            return
+        if (writeType == CBCharacteristicWriteWithResponse) {
+            val event = BlePeripheralEvents.first<CBPeripheralEvent.DidWriteValueForCharacteristic>(device.address)
+            if (!event.result) {
+                log.w { "[OperationTypeWrite] fail 写入失败" }
+                OperationManager.resultFlow.tryEmit(operation.fail())
+                return
+            }
+            OperationManager.resultFlow.tryEmit(operation.success())
+        } else {
+            BlePeripheralEvents.first<CBPeripheralEvent.IsReadyToSendWriteWithoutResponse>(device.address)
+            OperationManager.resultFlow.tryEmit(operation.success())
         }
-        OperationManager.resultFlow.tryEmit(operation.success())
     }
 
     private fun requestMtu(operation: OperationType.MtuChanged) {

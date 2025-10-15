@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -49,26 +50,36 @@ object IosBleManager: ABleManager() {
     }
 
     override fun scan(): Flow<BleDevice> = callbackFlow {
-        // 监听扫描事件并转发为通用设备模型
-        val eventsJob = launch {
-            BleCentralEvents.eventFlow.collect { event ->
-                if (event is CBCentralManagerEvent.DidDiscoverPeripheral) {
-                    val device = BleDevice(
-                        name = event.name,
-                        address = event.peripheral.address,
-                        rssi = event.rssi,
-                        obj = event.peripheral
-                    )
-                    trySend(device)
-                }
-            }
-        }
 
-        withContext(Dispatchers.Main) {
+        fun startScan() {
             centralManager.stopScan()
             centralManager.scanForPeripheralsWithServices(null, null)
             log.d { "开始扫描" }
         }
+
+        // 监听扫描事件并转发为通用设备模型
+        val eventsJob = launch {
+            launch {
+                BleCentralEvents.eventFlow.collect { event ->
+                    if (event is CBCentralManagerEvent.DidDiscoverPeripheral) {
+                        val device = BleDevice(
+                            name = event.name,
+                            address = event.peripheral.address,
+                            rssi = event.rssi,
+                            obj = event.peripheral
+                        )
+                        trySend(device)
+                    }
+                }
+            }
+            if (BleCentralEvents.stateFlow.value != CBManagerStateEnum.PoweredOn) {
+                BleCentralEvents.stateFlow.first { it == CBManagerStateEnum.PoweredOn }
+                log.d { "蓝牙已开启" }
+                withContext(Dispatchers.Main) { startScan() }
+            }
+        }
+
+        withContext(Dispatchers.Main) { startScan() }
 
         awaitClose {
             centralManager.stopScan()
