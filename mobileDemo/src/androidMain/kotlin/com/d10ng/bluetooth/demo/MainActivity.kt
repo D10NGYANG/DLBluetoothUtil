@@ -11,7 +11,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,12 +31,19 @@ private fun ImmersiveSystemBars() {
     val darkTheme = isSystemInDarkTheme()
     val barColor = MaterialTheme.colorScheme.surface
     SideEffect {
-        val window = (view.context as android.app.Activity).window
-        window.statusBarColor = barColor.toArgb()
-        window.navigationBarColor = barColor.toArgb()
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        controller.isAppearanceLightStatusBars = !darkTheme
-        controller.isAppearanceLightNavigationBars = !darkTheme
+        val activity = view.context as ComponentActivity
+        activity.enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                lightScrim = barColor.toArgb(),
+                darkScrim = barColor.toArgb(),
+                detectDarkMode = { darkTheme }
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                lightScrim = barColor.toArgb(),
+                darkScrim = barColor.toArgb(),
+                detectDarkMode = { darkTheme }
+            )
+        )
     }
 }
 
