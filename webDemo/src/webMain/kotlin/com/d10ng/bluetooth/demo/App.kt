@@ -2,6 +2,8 @@ package com.d10ng.bluetooth.demo
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,15 +18,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -63,6 +69,7 @@ import kotlinx.datetime.format
 import kotlinx.datetime.format.FormatStringsInDatetimeFormats
 import kotlinx.datetime.format.byUnicodePattern
 import kotlinx.datetime.toLocalDateTime
+import kotlin.math.max
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
@@ -99,19 +106,32 @@ fun App() {
         // 右侧：通讯区域
         val messages = remember { mutableStateListOf<ChatMessage>() }
 
-        // 连接后监听通知数据
+        // 连接后：发现服务、同步订阅状态、监听通知并默认选择可写特征
         LaunchedEffect(connection) {
-            connection ?: return@LaunchedEffect
+            val conn = connection ?: return@LaunchedEffect
+            // 发现服务（再次触发，避免首次连接时服务为空）
+            services = runCatching { conn.discoverServices() }.getOrDefault(emptyList())
+            // 默认选择首个可写特征
+            selectedWriteChar = services.flatMap { it.characteristics }
+                .firstOrNull { ch -> ch.properties.contains(BleGattCharacteristicProperty.WRITE) || ch.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) }
+
+            // 自动订阅所有可通知的特征（不包含 INDICATE）
+            services.flatMap { it.characteristics }
+                .filter { ch -> ch.properties.contains(BleGattCharacteristicProperty.NOTIFY) }
+                .forEach { ch ->
+                    scope.launch { runCatching { conn.notify(ch, true) } }
+                }
+
             // 同步订阅状态
             scope.launch {
-                connection!!.notifyStatusFlow.collect { list ->
+                conn.notifyStatusFlow.collect { list ->
                     subscribedChars.clear()
                     subscribedChars.addAll(list)
                 }
             }
             // 通知数据
             scope.launch {
-                connection!!.notifyDataFlow.collect { data ->
+                conn.notifyDataFlow.collect { data ->
                     val content = runCatching { data.data.decodeToString() }.getOrDefault("")
                     messages.add(ChatMessage(Clock.System.now(), "RX", "${data.characteristic.uuid}: $content"))
                 }
@@ -119,14 +139,15 @@ fun App() {
         }
 
         Row(
-            modifier = Modifier.fillMaxSize().padding(12.dp)
+            modifier = Modifier.fillMaxSize().padding(20.dp)
         ) {
             // 左侧连接区域
-            Column(
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp)
-            ) {
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(modifier = Modifier.weight(0.33f).fillMaxHeight().padding(end = 8.dp)) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         Text(text = "服务注册", style = MaterialTheme.typography.titleMedium)
                         OutlinedTextField(
                             value = serviceInput,
@@ -137,21 +158,24 @@ fun App() {
                             modifier = Modifier.fillMaxWidth()
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Button(onClick = {
-                                // 注册服务
-                                serviceInput.split(",").map { it.trim() }.filter { it.isNotBlank() }.forEach { uuid ->
-                                    registerWebBleUseService(uuid)
-                                }
-                                // requestDevice (scan)
-                                scanning = true
-                                selectedDevice = null
-                                scope.launch {
-                                    bleManager.scan().collect { dev ->
-                                        selectedDevice = dev
+                            Button(
+                                enabled = connection == null,
+                                onClick = {
+                                    // 注册服务
+                                    serviceInput.split(",").map { it.trim() }.filter { it.isNotBlank() }.forEach { uuid ->
+                                        registerWebBleUseService(uuid)
                                     }
-                                    scanning = false
+                                    // requestDevice (scan)
+                                    scanning = true
+                                    selectedDevice = null
+                                    scope.launch {
+                                        bleManager.scan().collect { dev ->
+                                            selectedDevice = dev
+                                        }
+                                        scanning = false
+                                    }
                                 }
-                            }) {
+                            ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(imageVector = Icons.Filled.Refresh, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -175,16 +199,21 @@ fun App() {
                                     runCatching {
                                         val conn = bleManager.connect(dev)
                                         connection = conn
-                                        // 发现服务
-                                        services = runCatching { conn.discoverServices() }.getOrDefault(emptyList())
-                                        // 默认选择首个可写特征
-                                        selectedWriteChar = services.flatMap { it.characteristics }
-                                            .firstOrNull { ch -> ch.properties.contains(BleGattCharacteristicProperty.WRITE) || ch.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) }
                                     }.onFailure { e ->
                                         // 连接失败提示为消息
                                         messages.add(ChatMessage(Clock.System.now(), "ERR", e.message ?: "连接失败"))
                                     }
                                     connecting = false
+                                }
+                            },
+                            onDisconnect = {
+                                val conn = connection ?: return@DeviceInfoArea
+                                scope.launch {
+                                    runCatching { conn.disconnect() }
+                                    connection = null
+                                    services = emptyList()
+                                    selectedWriteChar = null
+                                    subscribedChars.clear()
                                 }
                             },
                             services = services,
@@ -202,7 +231,7 @@ fun App() {
 
             // 右侧通讯区域
             Column(
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp)
+                modifier = Modifier.weight(0.67f).fillMaxHeight().padding(start = 8.dp)
             ) {
                 ChatArea(
                     enabled = connection != null,
@@ -237,6 +266,7 @@ private fun DeviceInfoArea(
     connecting: Boolean,
     connection: ABleConnection?,
     onConnect: (BleDevice?) -> Unit,
+    onDisconnect: () -> Unit,
     services: List<BleGattService>,
     subscribed: List<BleGattCharacteristic>,
     onToggleNotify: (BleGattCharacteristic, Boolean) -> Unit,
@@ -245,7 +275,7 @@ private fun DeviceInfoArea(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(text = "设备", style = MaterialTheme.typography.titleMedium)
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Surface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                 if (device == null) {
                     Text(text = "尚未选择设备", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -267,7 +297,9 @@ private fun DeviceInfoArea(
                                 }
                             }
                         } else {
-                            AssistChip(onClick = {}, label = { Text("已连接") })
+                            FilledTonalButton(onClick = { onDisconnect() }) {
+                                Text("断开连接")
+                            }
                         }
                     }
                 }
@@ -284,6 +316,9 @@ private fun DeviceInfoArea(
                 selectedWrite = selectedWrite,
                 onSelectWrite = onSelectWrite
             )
+        } else if (connection != null) {
+            // 已连接但没有服务时给出提示
+            EmptyServicesHint(true)
         }
     }
 }
@@ -298,40 +333,88 @@ private fun ServicesList(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         services.forEach { service ->
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(text = service.uuid, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                    service.characteristics.forEach { ch ->
-                        Column(modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(8.dp)) {
-                            Text(text = ch.uuid, style = MaterialTheme.typography.bodySmall)
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                ch.properties.forEach { prop ->
-                                    AssistChip(onClick = {}, label = { Text(propLabel(prop)) }, modifier = Modifier, enabled = false)
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val canNotify = ch.properties.contains(BleGattCharacteristicProperty.NOTIFY) || ch.properties.contains(BleGattCharacteristicProperty.INDICATE)
-                                if (canNotify) {
-                                    val enabled = subscribed.any { it.uuid == ch.uuid }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Switch(checked = enabled, onCheckedChange = { onToggleNotify(ch, it) })
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(text = if (enabled) "已订阅" else "订阅")
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text(
+                        text = "服务：" + service.uuid,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    service.characteristics.forEachIndexed { cIdx, ch ->
+                        val props = ch.properties
+                        val canNotify = props.contains(BleGattCharacteristicProperty.NOTIFY)
+                        val enabled = subscribed.any { it.uuid == ch.uuid }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = "特征：" + ch.uuid, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    ch.properties.forEach { p ->
+                                        val (bg, fg) = propColors(p)
+                                        val shape = RoundedCornerShape(8.dp)
+                                        if (p == BleGattCharacteristicProperty.WRITE || p == BleGattCharacteristicProperty.WRITE_NO_RESPONSE) {
+                                            val selected = selectedWrite?.uuid == ch.uuid
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(bg, shape)
+                                                    .clickable { onSelectWrite(ch) }
+                                            ) {
+                                                Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    if (selected) {
+                                                        Icon(imageVector = Icons.Filled.Check, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                    }
+                                                    Text(text = propLabel(p), color = fg, style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                        } else {
+                                            Surface(color = bg, shape = shape) {
+                                                Text(text = propLabel(p), color = fg, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                            }
+                                        }
                                     }
                                 }
-                                val canWrite = ch.properties.contains(BleGattCharacteristicProperty.WRITE) || ch.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE)
-                                if (canWrite) {
-                                    FilledTonalButton(onClick = { onSelectWrite(ch) }) {
-                                        Text(text = if (selectedWrite?.uuid == ch.uuid) "写入目标（当前）" else "选择为写入目标")
-                                    }
+                            }
+                            if (canNotify) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Switch(checked = enabled, onCheckedChange = { onToggleNotify(ch, it) })
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(text = if (enabled) "已订阅" else "订阅")
                                 }
                             }
+                        }
+                        if (cIdx < service.characteristics.size - 1) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun EmptyServicesHint(visible: Boolean) {
+    if (!visible) return
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = RoundedCornerShape(12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(text = "服务特征", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "未发现服务或未注册访问的服务。请在上方输入要访问的服务UUID（可逗号分隔），点击‘扫描设备’后再连接。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -347,7 +430,21 @@ private fun propLabel(prop: BleGattCharacteristicProperty): String = when (prop)
     BleGattCharacteristicProperty.EXTENDED_PROPS -> "EXTENDED"
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun propColors(prop: BleGattCharacteristicProperty): Pair<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color> {
+    return when (prop) {
+        BleGattCharacteristicProperty.READ -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        BleGattCharacteristicProperty.WRITE -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+        BleGattCharacteristicProperty.WRITE_NO_RESPONSE -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f) to MaterialTheme.colorScheme.onPrimaryContainer
+        BleGattCharacteristicProperty.NOTIFY -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        BleGattCharacteristicProperty.INDICATE -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f) to MaterialTheme.colorScheme.onTertiaryContainer
+        BleGattCharacteristicProperty.BROADCAST -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+        BleGattCharacteristicProperty.SIGNED_WRITE -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f) to MaterialTheme.colorScheme.onSurfaceVariant
+        BleGattCharacteristicProperty.EXTENDED_PROPS -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f) to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatArea(
     enabled: Boolean,
@@ -357,6 +454,11 @@ private fun ChatArea(
     onSend: (String) -> Unit
 ) {
     var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    androidx.compose.runtime.LaunchedEffect(messages.size) {
+        val last = max(messages.size - 1, 0)
+        listState.scrollToItem(last)
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(text = title.ifBlank { "通讯" }) },
@@ -369,7 +471,8 @@ private fun ChatArea(
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surface),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            state = listState
         ) {
             items(messages.size) { idx ->
                 val m = messages[idx]
@@ -396,28 +499,52 @@ private fun ChatArea(
 @OptIn(ExperimentalTime::class)
 @Composable
 private fun MessageBubble(msg: ChatMessage) {
-    val timeStr = msg.time.toHHmmssSSS()
-    val bg = when (msg.dir) {
-        "TX" -> MaterialTheme.colorScheme.primaryContainer
-        "RX" -> MaterialTheme.colorScheme.secondaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerLow
+    val isTx = remember(msg.dir) { msg.dir == "TX" }
+    val container = if (isTx) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer
+    val onContainer = if (isTx) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onTertiaryContainer
+    val borderColor = if (isTx) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+    val metaPayload = remember(msg.content) {
+        val parts = msg.content.split(": ", limit = 2)
+        val meta = parts.getOrNull(0) ?: ""
+        val body = (parts.getOrNull(1) ?: msg.content).trim()
+        meta to body
     }
-    val fg = when (msg.dir) {
-        "TX" -> MaterialTheme.colorScheme.onPrimaryContainer
-        "RX" -> MaterialTheme.colorScheme.onSecondaryContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Surface(color = bg, shape = RoundedCornerShape(8.dp)) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.background(color = fg.copy(alpha = 0.15f), shape = RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
-                ) { Text(text = msg.dir) }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = timeStr, style = MaterialTheme.typography.bodySmall, color = fg)
+    val meta = metaPayload.first
+    val payload = metaPayload.second
+    val timeText = remember(msg.time) { msg.time.toHHmmssSSS() }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = timeText,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = "特征：$meta",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        val bubbleShape = RoundedCornerShape(bottomEnd = 8.dp, bottomStart = 8.dp)
+        Surface(
+            color = container,
+            tonalElevation = 2.dp,
+            shape = bubbleShape,
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(width = 1.dp, color = borderColor, shape = bubbleShape)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                SelectionContainer {
+                    Text(
+                        text = payload,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = onContainer,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(text = msg.content, color = fg)
         }
     }
 }
