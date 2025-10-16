@@ -31,8 +31,8 @@ object WebBleManager: ABleManager() {
     init {
         scope.launch {
             if (isSupported()) {
-                val available = navigator.bluetooth!!.getAvailability().await<Boolean>()
-                isEnabledFlow.value = available
+                val available = navigator.bluetooth!!.getAvailability().await<JsBoolean>()
+                isEnabledFlow.value = available.toBoolean()
             }
         }
     }
@@ -63,7 +63,7 @@ object WebBleManager: ABleManager() {
             return@callbackFlow
         }
         val job = launch {
-            val options = createJsBluetoothRequestOptions(true, optionalServices.toTypedArray())
+            val options = createJsBluetoothRequestOptions(true, optionalServices.map { it.toJsString() }.toJsArray())
             val device = runCatching {
                 navigator.bluetooth!!.requestDevice(options).await<BluetoothDevice>()
             }.getOrNull()

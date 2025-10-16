@@ -24,7 +24,7 @@ external interface Bluetooth : JsAny {
 
 fun createJsBluetoothRequestOptions(
     acceptAllDevices: Boolean,
-    optionalServices: Array<String>,
+    optionalServices: JsArray<JsString>,
 ) : JsAny = js("({ acceptAllDevices: acceptAllDevices, optionalServices: optionalServices })")
 
 external interface BluetoothDevice : JsAny {
