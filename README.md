@@ -5,13 +5,16 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-![DLBluetoothUtil](https://img.shields.io/badge/DLBluetoothUtil-v0.6.0-blue)
+[![Latest](https://img.shields.io/badge/version-0.6.0-blue)](#)
+[![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
 
 - 库模块：`/lib`（KMP + Android/iOS/JS/Wasm）
 - 移动端示例：`/mobileDemo`（Android + iOS Framework）
 - Web 示例：`/webDemo`（Kotlin/JS + Wasm）
+
+**在线预览：[https://d10ngyang.github.io/DLBluetoothUtil/](https://d10ngyang.github.io/DLBluetoothUtil/)**
 
 ## 支持特性
 
@@ -74,6 +77,45 @@ kotlin {
     }
 }
 ```
+
+## 日志输出控制
+
+本库内部使用 [DLLogUtil](https://github.com/D10NGYANG/DLLogUtil) 进行日志记录。若需要在你的项目中控制日志输出等级，或收集日志，请在你的 KMP 模块添加日志库依赖（建议在 `commonMain`）：
+
+```kotlin
+kotlin {
+    sourceSets {
+        val commonMain by getting {
+            dependencies {
+                // 日志库（用于控制输出等级）
+                implementation("com.github.D10NGYANG:DLLogUtil:0.1.1")
+            }
+        }
+    }
+}
+```
+
+设置日志输出等级（示例）：
+
+```kotlin
+import com.d10ng.bluetooth.BluetoothManagerLog
+import com.d10ng.log.LogLevel
+
+fun initLogging() {
+    // 仅输出 WARN 及以上级别
+    BluetoothManagerLog.miniLevel = LogLevel.WARN
+
+    // 如需输出更详细的日志（包含所有等级）
+    // BluetoothManagerLog.miniLevel = LogLevel.VERBOSE
+  
+    // 关闭日志输出
+    // BluetoothManagerLog.miniLevel = LogLevel.NONE
+}
+```
+
+- 常见日志等级：`VERBOSE`、`DEBUG`、`INFO`、`WARN`、`ERROR`、`NONE`（具体以 DLLogUtil 定义为准）
+- 推荐在应用启动时设置，如：Android 的 `Application.onCreate`、JVM/桌面项目的 `main` 函数、Web 页面初始化等
+
 
 ## 快速上手（Kotlin 示例）
 
