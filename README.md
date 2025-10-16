@@ -81,6 +81,7 @@ kotlin {
 import com.d10ng.bluetooth.getPlatformBleManager
 import com.d10ng.bluetooth.ABleConnection
 import com.d10ng.bluetooth.constant.BleDevice
+import com.d10ng.bluetooth.registerWebBleUseService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -105,6 +106,10 @@ suspend fun demo(scope: CoroutineScope) {
     if (!ble.isSupported()) error("当前环境不支持 BLE")
     // 某些平台支持代码开启蓝牙（Android），iOS/Web 不支持
     if (ble.isSupportEnable()) ble.enable()
+
+    // Web 端：在设备请求前注册计划使用的服务，否则无法获取服务和特征进行通讯
+    // 可多次调用以注册多个服务 UUID；仅在 Web 平台有效
+    registerWebBleUseService("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 
     // 扫描设备（Web 端一次只返回一个设备，且需要用户手势触发）
     val devices = mutableListOf<BleDevice>()
@@ -187,6 +192,9 @@ suspend fun demo(scope: CoroutineScope) {
   - `data class BleGattNotifyData(val characteristic: BleGattCharacteristic, val data: ByteArray)`
   - `enum class BleGattCharacteristicProperty` 包含 `READ`, `WRITE`, `WRITE_NO_RESPONSE`, `NOTIFY`, `INDICATE` 等属性位
 
+- Web 端额外接口
+  - `fun registerWebBleUseService(uuid: String)` 在 Web 平台上注册计划访问的 GATT 服务 UUID；必须在调用 `scan()` 或触发 `navigator.bluetooth.requestDevice(...)` 前执行；可重复调用注册多个服务。否则无法获取到服务特征进行通讯。
+
 ## 注意事项
 
 ### Android
@@ -203,6 +211,7 @@ suspend fun demo(scope: CoroutineScope) {
 ### Web（Web Bluetooth）
 - 安全环境：需要 `https` 或 `http://localhost`。
 - 设备请求：`navigator.bluetooth.requestDevice(...)` 必须由用户手势触发（点击按钮等）。
+- 服务注册：在调用 `scan()` 或 `navigator.bluetooth.requestDevice(...)` 之前，必须使用 `registerWebBleUseService("服务UUID")` 注册你计划访问的 GATT 服务（可多次调用注册多个）。未注册的服务在连接后不可见，导致无法获取特征进行通讯（浏览器需要通过 `optionalServices` 允许访问）。
 - 扫描行为：一次请求返回一个设备，完成后 Flow 将关闭；如需多个设备，需多次请求。
 - 兼容性：Chrome/Edge 支持较好；Safari/iOS 支持有限或不可用。
 
