@@ -32,10 +32,10 @@ class WebBleConnection(
     }
 
     override suspend fun discoverServices(): List<BleGattService> {
-        val services = gatt.getPrimaryServices().await<Array<BluetoothRemoteGATTService>>()
+        val services = gatt.getPrimaryServices().await<JsArray<BluetoothRemoteGATTService>>().toArray()
         val list = mutableListOf<BleGattService>()
         for (service in services) {
-            val characteristics = service.getCharacteristics().await<Array<BluetoothRemoteGATTCharacteristic>>()
+            val characteristics = service.getCharacteristics().await<JsArray<BluetoothRemoteGATTCharacteristic>>().toArray()
             list.add(BleGattService(
                 service.uuid,
                 characteristics.map { ch ->
