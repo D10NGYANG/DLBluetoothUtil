@@ -70,6 +70,7 @@ import kotlinx.datetime.format.FormatStringsInDatetimeFormats
 import kotlinx.datetime.format.byUnicodePattern
 import kotlinx.datetime.toLocalDateTime
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
@@ -102,6 +103,7 @@ fun App() {
         var services by remember { mutableStateOf<List<BleGattService>>(emptyList()) }
         var selectedWriteChar by remember { mutableStateOf<BleGattCharacteristic?>(null) }
         val subscribedChars = remember { mutableStateListOf<BleGattCharacteristic>() }
+        var maxWriteSize by remember { mutableStateOf(20) }
 
         // 右侧：通讯区域
         val messages = remember { mutableStateListOf<ChatMessage>() }
@@ -111,6 +113,7 @@ fun App() {
             val conn = connection ?: return@LaunchedEffect
             // 发现服务（再次触发，避免首次连接时服务为空）
             services = runCatching { conn.discoverServices() }.getOrDefault(emptyList())
+            maxWriteSize = max(20, runCatching { conn.requestMaxMtu() }.getOrDefault(20))
             // 默认选择首个可写特征
             selectedWriteChar = services.flatMap { it.characteristics }
                 .firstOrNull { ch -> ch.properties.contains(BleGattCharacteristicProperty.WRITE) || ch.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) }
@@ -247,7 +250,14 @@ fun App() {
                         val msg = if (text.isNotBlank()) text + "\r\n" else "\r\n"
                         scope.launch {
                             runCatching {
-                                conn.write(ch, msg.encodeToByteArray())
+                                val data = msg.encodeToByteArray()
+                                var idx = 0
+                                while (idx < data.size) {
+                                    val end = min(data.size, idx + maxWriteSize)
+                                    val chunk = data.copyOfRange(idx, end)
+                                    conn.write(ch, chunk)
+                                    idx = end
+                                }
                                 messages.add(ChatMessage(Clock.System.now(), "TX", "${ch.uuid}: $text"))
                             }.onFailure { e ->
                                 messages.add(ChatMessage(Clock.System.now(), "ERR", e.message ?: "发送失败"))

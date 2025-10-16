@@ -367,6 +367,7 @@ private fun ChatScreen(
     var services by remember { mutableStateOf<List<BleGattService>>(emptyList()) }
     var selectedChar by remember { mutableStateOf<BleGattCharacteristic?>(null) }
     var input by remember { mutableStateOf("") }
+    var maxWriteSize by remember { mutableStateOf(20) }
 
     // 订阅状态
     val notifyStatus by connection.notifyStatusFlow.collectAsState(initial = emptyList())
@@ -389,7 +390,7 @@ private fun ChatScreen(
 
     // 进入页面时发现服务并自动订阅所有可通知特征
     LaunchedEffect(connection) {
-        runCatching { connection.requestMaxMtu() }
+        maxWriteSize = maxOf(20, runCatching { connection.requestMaxMtu() }.getOrDefault(20))
         services = runCatching { connection.discoverServices() }.getOrDefault(emptyList())
         val notifiables = services.flatMap { it.characteristics }
             .filter { it.properties.contains(BleGattCharacteristicProperty.NOTIFY) || it.properties.contains(BleGattCharacteristicProperty.INDICATE) }
@@ -599,12 +600,21 @@ private fun ChatScreen(
                         val text = input + "\r\n"
                         val bytes = text.encodeToByteArray()
                         scope.launch {
-                            runCatching { connection.write(ch, bytes) }
-                                .onSuccess {
-                                    messages.add(ChatMessage(Clock.System.now(), "TX", "${ch.uuid}: ${text.trim()}"))
-                                    input = ""
-                                    listState.animateScrollToItem(maxOf(messages.size - 1, 0))
+                            runCatching {
+                                var idx = 0
+                                while (idx < bytes.size) {
+                                    val end = minOf(bytes.size, idx + maxWriteSize)
+                                    val chunk = bytes.copyOfRange(idx, end)
+                                    connection.write(ch, chunk)
+                                    idx = end
                                 }
+                            }.onSuccess {
+                                messages.add(ChatMessage(Clock.System.now(), "TX", "${ch.uuid}: ${text.trim()}"))
+                                input = ""
+                                listState.animateScrollToItem(maxOf(messages.size - 1, 0))
+                            }.onFailure { e ->
+                                messages.add(ChatMessage(Clock.System.now(), "ERR", e.message ?: "发送失败"))
+                            }
                         }
                     },
                     enabled = selectedChar != null
