@@ -34,7 +34,7 @@ kotlin {
             // 日志
             implementation(libs.dl.log)
             // 蓝牙
-            implementation(project(":lib"))
+            implementation(project(":DLBluetoothUtil"))
         }
     }
 }

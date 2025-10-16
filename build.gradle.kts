@@ -6,7 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform) apply false
     alias(libs.plugins.compose.hotreload) apply false
     alias(libs.plugins.compose.multiplatform) apply false
-    id("com.github.ben-manes.versions") version "0.52.0"
+    id("com.github.ben-manes.versions") version "0.53.0"
 }
 
 fun isNonStable(version: String): Boolean {

@@ -38,5 +38,5 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-include(":library", ":lib", ":mobileDemo", ":webDemo")
-project(":library").name = "DLBluetoothUtil"
+include(":lib", ":mobileDemo", ":webDemo")
+project(":lib").name = "DLBluetoothUtil"
