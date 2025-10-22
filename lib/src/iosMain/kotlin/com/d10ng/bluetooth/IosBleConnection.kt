@@ -107,7 +107,7 @@ class IosBleConnection(
         notifyStatusFlow.value = ls
     }
 
-    override suspend fun disconnect() {
+    override fun disconnect() {
         runCatching { centralManager.cancelPeripheralConnection(peripheral) }
         handleDisconnected()
     }

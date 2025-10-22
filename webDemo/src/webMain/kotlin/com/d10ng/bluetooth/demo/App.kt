@@ -211,13 +211,11 @@ fun App() {
                             },
                             onDisconnect = {
                                 val conn = connection ?: return@DeviceInfoArea
-                                scope.launch {
-                                    runCatching { conn.disconnect() }
-                                    connection = null
-                                    services = emptyList()
-                                    selectedWriteChar = null
-                                    subscribedChars.clear()
-                                }
+                                runCatching { conn.disconnect() }
+                                connection = null
+                                services = emptyList()
+                                selectedWriteChar = null
+                                subscribedChars.clear()
                             },
                             services = services,
                             subscribed = subscribedChars,

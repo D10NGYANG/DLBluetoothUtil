@@ -63,5 +63,5 @@ abstract class ABleConnection(
     /**
      * 断开连接
      */
-    abstract suspend fun disconnect()
+    abstract fun disconnect()
 }

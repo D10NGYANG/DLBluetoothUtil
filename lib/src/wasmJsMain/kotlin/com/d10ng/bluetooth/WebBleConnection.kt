@@ -116,7 +116,7 @@ class WebBleConnection(
         notifyStatusFlow.value = ls
     }
 
-    override suspend fun disconnect() {
+    override fun disconnect() {
         runCatching { gatt.disconnect() }
         handleDisconnected()
     }

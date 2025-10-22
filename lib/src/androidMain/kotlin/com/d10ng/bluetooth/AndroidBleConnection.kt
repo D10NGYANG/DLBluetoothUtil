@@ -103,7 +103,7 @@ class AndroidBleConnection(
     }
 
     @SuppressLint("MissingPermission")
-    override suspend fun disconnect() {
+    override fun disconnect() {
         runCatching { gatt.close() }
         handleDisconnected()
     }

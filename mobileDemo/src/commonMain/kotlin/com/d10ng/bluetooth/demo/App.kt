@@ -119,7 +119,7 @@ fun App() {
                 connection = s.connection,
                 onBack = {
                     // 返回时自动断开连接
-                    scope.launch { s.connection.disconnect() }
+                    s.connection.disconnect()
                     screen = Screen.DeviceList
                 }
             )

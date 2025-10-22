@@ -5,7 +5,7 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-[![Latest](https://img.shields.io/badge/version-0.6.0-blue)](#)
+[![Latest](https://img.shields.io/badge/version-0.6.1-blue)](#)
 [![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
@@ -72,7 +72,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.6.0")
+            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.6.1")
         }
     }
 }
@@ -225,7 +225,7 @@ suspend fun demo(scope: CoroutineScope) {
   - `suspend fun requestMaxMtu(): Int` 请求最大写入 MTU（平台受限）
   - `suspend fun write(characteristic: BleGattCharacteristic, value: ByteArray)` 写入特征值
   - `suspend fun notify(characteristic: BleGattCharacteristic, enable: Boolean)` 开关通知/指示
-  - `suspend fun disconnect()` 断开连接
+  - `fun disconnect()` 断开连接
 
 - 数据模型
   - `data class BleDevice(val name: String?, val address: String, val rssi: Int, val obj: Any?)`
