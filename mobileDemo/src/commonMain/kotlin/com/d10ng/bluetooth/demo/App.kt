@@ -133,7 +133,7 @@ private fun DeviceListScreen(
 ) {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun DeviceListTopBar(scanning: Boolean, onScanClick: () -> Unit) {
+    fun DeviceListTopBar(scanning: Boolean, isEnabled: Boolean, onScanClick: () -> Unit) {
         // 无限旋转动画（仅在扫描时应用到图标）
         val infinite = rememberInfiniteTransition()
         val angle by infinite.animateFloat(
@@ -145,6 +145,12 @@ private fun DeviceListScreen(
         TopAppBar(
             title = { Text("设备列表") },
             actions = {
+                Icon(
+                    imageVector = Icons.Outlined.Bluetooth,
+                    contentDescription = "蓝牙状态",
+                    tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
                 IconButton(onClick = onScanClick) {
                     Icon(
                         imageVector = Icons.Filled.Refresh,
@@ -156,6 +162,7 @@ private fun DeviceListScreen(
         )
     }
     val bleManager = remember { getPlatformBleManager() }
+    val isEnabled by bleManager.isEnabledFlow.collectAsState()
     val scope = rememberCoroutineScope()
 
     var scanning by remember { mutableStateOf(false) }
@@ -183,6 +190,7 @@ private fun DeviceListScreen(
         topBar = {
             DeviceListTopBar(
                 scanning = scanning,
+                isEnabled = isEnabled,
                 onScanClick = {
                     if (scanning) {
                         // 停止扫描

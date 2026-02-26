@@ -34,7 +34,7 @@ class IosBleConnection(
     private val ready = CompletableDeferred<Unit>()
 
     // 用于主动断开连接
-    private val centralManager by lazy { IosOperationRunner.centralManager }
+    private val centralManager = IosOperationRunner.centralManager
 
     init {
         scope.launch {

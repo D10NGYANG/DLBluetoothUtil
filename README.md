@@ -5,7 +5,7 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-[![Latest](https://img.shields.io/badge/version-0.6.1-blue)](#)
+[![Latest](https://img.shields.io/badge/version-0.6.2-blue)](#)
 [![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
@@ -72,7 +72,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.6.1")
+            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.6.2")
         }
     }
 }
@@ -88,7 +88,7 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 // 日志库（用于控制输出等级）
-                implementation("com.github.D10NGYANG:DLLogUtil:0.1.1")
+                implementation("com.github.D10NGYANG:DLLogUtil:0.2.0")
             }
         }
     }

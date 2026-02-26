@@ -25,7 +25,7 @@ object IosBleManager: ABleManager() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private val centralManager by lazy { IosOperationRunner.centralManager }
+    private val centralManager = IosOperationRunner.centralManager
 
     init {
         IosOperationRunner.start()
