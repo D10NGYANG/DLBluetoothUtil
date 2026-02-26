@@ -23,6 +23,7 @@ import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 
 /**
  * 蓝牙管理
@@ -32,8 +33,6 @@ import kotlinx.coroutines.flow.callbackFlow
 object AndroidBleManager: ABleManager() {
 
     private val bluetoothManager by lazy { ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager? }
-    private val bluetoothAdapter by lazy { bluetoothManager?.adapter }
-    private val bluetoothScanner by lazy { bluetoothAdapter?.bluetoothLeScanner }
 
     private val scanSettings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -69,7 +68,7 @@ object AndroidBleManager: ABleManager() {
                 }
             }
         }, intentFilter)
-        isEnabledFlow.value = bluetoothAdapter?.isEnabled ?: false
+        isEnabledFlow.value = bluetoothManager?.adapter?.isEnabled ?: false
     }
 
     override fun isSupported(): Boolean {
@@ -78,7 +77,7 @@ object AndroidBleManager: ABleManager() {
             return false
         }
         // 获取 BluetoothAdapter
-        bluetoothAdapter ?: return false
+        bluetoothManager?.adapter ?: return false
         // 检查设备是否支持蓝牙 BLE
         return ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
     }
@@ -92,7 +91,7 @@ object AndroidBleManager: ABleManager() {
             // 设备不支持蓝牙
             throw Exception("Device does not support Bluetooth")
         }
-        if (bluetoothAdapter?.isEnabled == true) {
+        if (bluetoothManager?.adapter?.isEnabled == true) {
             // 蓝牙已开启
             log.d { "Bluetooth is enabled" }
             return
@@ -115,7 +114,7 @@ object AndroidBleManager: ABleManager() {
 
     @SuppressLint("MissingPermission")
     override fun scan(): Flow<BleDevice> = callbackFlow {
-        val scanner = bluetoothScanner
+        val scanner = bluetoothManager?.adapter?.bluetoothLeScanner
         if (scanner == null) {
             close(IllegalStateException("Bluetooth scanner not available"))
             return@callbackFlow
@@ -136,6 +135,15 @@ object AndroidBleManager: ABleManager() {
             return@callbackFlow
         }
 
+        // 监听蓝牙状态关闭
+        launch {
+            isEnabledFlow.collect { isEnabled ->
+                if (!isEnabled) {
+                    close(Exception("Bluetooth disabled"))
+                }
+            }
+        }
+
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 result?: return
@@ -152,6 +160,7 @@ object AndroidBleManager: ABleManager() {
             }
 
             override fun onScanFailed(errorCode: Int) {
+                log.w { "[ScanCallback.onScanFailed] Scan failed with error code $errorCode" }
                 close(Exception("Scan failed with error code $errorCode"))
             }
         }
@@ -160,7 +169,11 @@ object AndroidBleManager: ABleManager() {
 
         // 当 flow 被取消时停止扫描
         awaitClose {
-            scanner.stopScan(callback)
+            runCatching {
+                scanner.stopScan(callback)
+            }.onFailure { e ->
+                log.w { "stopScan failed: ${e.message}" }
+            }
         }
     }
 

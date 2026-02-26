@@ -133,7 +133,7 @@ private fun DeviceListScreen(
 ) {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun DeviceListTopBar(scanning: Boolean, isEnabled: Boolean, onScanClick: () -> Unit) {
+    fun DeviceListTopBar(scanning: Boolean, isEnabled: Boolean, onScanClick: () -> Unit, onBluetoothClick: () -> Unit) {
         // 无限旋转动画（仅在扫描时应用到图标）
         val infinite = rememberInfiniteTransition()
         val angle by infinite.animateFloat(
@@ -145,12 +145,13 @@ private fun DeviceListScreen(
         TopAppBar(
             title = { Text("设备列表") },
             actions = {
-                Icon(
-                    imageVector = Icons.Outlined.Bluetooth,
-                    contentDescription = "蓝牙状态",
-                    tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(end = 8.dp)
-                )
+                IconButton(onClick = onBluetoothClick) {
+                    Icon(
+                        imageVector = Icons.Outlined.Bluetooth,
+                        contentDescription = "蓝牙状态",
+                        tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                }
                 IconButton(onClick = onScanClick) {
                     Icon(
                         imageVector = Icons.Filled.Refresh,
@@ -173,15 +174,14 @@ private fun DeviceListScreen(
     // 扫描并实时更新设备列表
     LaunchedEffect(scanning) {
         if (scanning) {
-            // 如果支持开启蓝牙，尝试开启
             runCatching {
-                if (bleManager.isSupportEnable()) {
-                    bleManager.enable()
+                bleManager.scan().collect { dev ->
+                    val validName = !dev.name.isNullOrBlank() && dev.name != "Unknown"
+                    if (validName && devices.none { it.address == dev.address }) devices.add(dev)
                 }
-            }
-            bleManager.scan().collect { dev ->
-                val validName = !dev.name.isNullOrBlank() && dev.name != "Unknown"
-                if (validName && devices.none { it.address == dev.address }) devices.add(dev)
+            }.onFailure {
+                scanning = false
+                errorMsg = it.message
             }
         }
     }
@@ -200,6 +200,19 @@ private fun DeviceListScreen(
                         devices.clear()
                         errorMsg = null
                         scanning = true
+                    }
+                },
+                onBluetoothClick = {
+                    scope.launch {
+                        if (!isEnabled) {
+                            runCatching {
+                                if (bleManager.isSupportEnable()) {
+                                    bleManager.enable()
+                                }
+                            }
+                        } else {
+                            errorMsg = "蓝牙已开启"
+                        }
                     }
                 }
             )

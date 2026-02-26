@@ -12,6 +12,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import platform.CoreBluetooth.CBCentralManager
+import platform.CoreBluetooth.CBCentralManagerOptionShowPowerAlertKey
 import platform.CoreBluetooth.CBCharacteristic
 import platform.CoreBluetooth.CBCharacteristicWriteWithResponse
 import platform.CoreBluetooth.CBCharacteristicWriteWithoutResponse
@@ -27,10 +28,32 @@ object IosOperationRunner {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    internal val centralManager = CBCentralManager(delegate = CBCentralManagerDelegate, queue = null)
+    private var _centralManager: CBCentralManager? = null
+
+    internal val centralManager: CBCentralManager
+        get() {
+            if (_centralManager == null) {
+                _centralManager = createCentralManager(false)
+            }
+            return _centralManager!!
+        }
+
+    private fun createCentralManager(showPowerAlert: Boolean): CBCentralManager {
+        return CBCentralManager(
+            delegate = CBCentralManagerDelegate,
+            queue = null,
+            options = mapOf<Any?, Any>(CBCentralManagerOptionShowPowerAlertKey to showPowerAlert)
+        )
+    }
+
+    fun restartCentralManager() {
+        _centralManager = createCentralManager(true)
+    }
 
     fun start() {
         log.d { "IosOperationRunner start" }
+        // 确保初始化
+        centralManager
     }
 
     init {

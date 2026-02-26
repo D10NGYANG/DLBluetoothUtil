@@ -12,7 +12,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -24,8 +23,6 @@ import kotlinx.coroutines.withContext
 object IosBleManager: ABleManager() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
-    private val centralManager = IosOperationRunner.centralManager
 
     init {
         IosOperationRunner.start()
@@ -42,18 +39,20 @@ object IosBleManager: ABleManager() {
     }
 
     override fun isSupportEnable(): Boolean {
-        return false
+        return true
     }
 
     override suspend fun enable() {
-        // IOS没有对应的动作，开始扫描就会去申请开启蓝牙了
+        if (BleCentralEvents.stateFlow.value == CBManagerStateEnum.PoweredOff) {
+            IosOperationRunner.restartCentralManager()
+        }
     }
 
     override fun scan(): Flow<BleDevice> = callbackFlow {
 
         fun startScan() {
-            centralManager.stopScan()
-            centralManager.scanForPeripheralsWithServices(null, null)
+            IosOperationRunner.centralManager.stopScan()
+            IosOperationRunner.centralManager.scanForPeripheralsWithServices(null, null)
             log.d { "开始扫描" }
         }
 
@@ -73,16 +72,22 @@ object IosBleManager: ABleManager() {
                 }
             }
             if (BleCentralEvents.stateFlow.value != CBManagerStateEnum.PoweredOn) {
-                BleCentralEvents.stateFlow.first { it == CBManagerStateEnum.PoweredOn }
-                log.d { "蓝牙已开启" }
+                close(Exception("Bluetooth disabled"))
+            } else {
+                // 监听蓝牙状态关闭
+                launch {
+                    isEnabledFlow.collect { isEnabled ->
+                        if (!isEnabled) {
+                            close(Exception("Bluetooth disabled"))
+                        }
+                    }
+                }
                 withContext(Dispatchers.Main) { startScan() }
             }
         }
 
-        withContext(Dispatchers.Main) { startScan() }
-
         awaitClose {
-            centralManager.stopScan()
+            IosOperationRunner.centralManager.stopScan()
             eventsJob.cancel()
         }
     }
