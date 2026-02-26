@@ -12,6 +12,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -31,13 +32,11 @@ class IosBleConnection(
     private val peripheral = device.obj as CBPeripheral
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var collectJob: Job? = null
     private val ready = CompletableDeferred<Unit>()
 
-    // 用于主动断开连接
-    private val centralManager = IosOperationRunner.centralManager
-
     init {
-        scope.launch {
+        collectJob = scope.launch {
             // 监听中心管理器断开事件，更新连接状态
             launch {
                 BleCentralEvents.eventFlow
@@ -71,7 +70,7 @@ class IosBleConnection(
     @OptIn(ExperimentalUuidApi::class)
     private fun CBCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {
         return servicesFlow.value
-            .first { service -> service.uuid.contentEquals(this.service!!.UUIDString, true) }
+            .first { service -> service.uuid.contentEquals(this.service?.UUIDString, true) }
             .characteristics
             .first { char -> char.uuid.contentEquals(this.UUIDString, true) }
     }
@@ -108,7 +107,7 @@ class IosBleConnection(
     }
 
     override fun disconnect() {
-        runCatching { centralManager.cancelPeripheralConnection(peripheral) }
+        runCatching { IosOperationRunner.centralManager.cancelPeripheralConnection(peripheral) }
         handleDisconnected()
     }
 
@@ -116,5 +115,6 @@ class IosBleConnection(
         isConnectedFlow.value = false
         servicesFlow.value = listOf()
         notifyStatusFlow.value = listOf()
+        collectJob?.cancel()
     }
 }
