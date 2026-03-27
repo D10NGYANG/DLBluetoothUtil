@@ -110,7 +110,7 @@ object AndroidOperationRunner {
                 }
             }
         }
-        log.w { "[OperationType.DiscoverServices] success 获取服务成功" }
+        log.i { "[OperationType.DiscoverServices] success 获取服务成功" }
         OperationManager.resultFlow.tryEmit(operation.success(list))
     }
 
