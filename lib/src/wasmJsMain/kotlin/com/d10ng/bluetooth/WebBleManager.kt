@@ -57,31 +57,64 @@ object WebBleManager: ABleManager() {
         optionalServices.add(uuid)
     }
 
-    override fun scan(): Flow<BleDevice> = callbackFlow {
+    override fun scan(serviceUuids: List<String>): Flow<BleDevice> = callbackFlow {
         if (!isSupported()) {
             close()
             return@callbackFlow
         }
         val job = launch {
-            val options = createJsBluetoothRequestOptions(true, optionalServices.map { it.toJsString() }.toJsArray())
+            val options = if (serviceUuids.isEmpty()) {
+                createJsBluetoothRequestOptions(true, optionalServices.map { it.toJsString() }.toJsArray())
+            } else {
+                val allOptional = (optionalServices + serviceUuids).map { it.toJsString() }.toJsArray()
+                createJsBluetoothRequestOptionsWithFilters(
+                    serviceUuids.map { it.toJsString() }.toJsArray(),
+                    allOptional
+                )
+            }
             val device = runCatching {
                 navigator.bluetooth!!.requestDevice(options).await<BluetoothDevice>()
             }.getOrNull()
 
             if (device != null) {
-                val ble = BleDevice(
+                trySend(BleDevice(
                     name = device.name ?: "Unknown",
                     address = device.id,
                     rssi = 0,
                     obj = device
-                )
-                trySend(ble)
+                ))
             }
             close()
         }
-        awaitClose {
-            job.cancel()
+        awaitClose { job.cancel() }
+    }
+
+    override fun scanByAddress(addresses: List<String>): Flow<BleDevice> = callbackFlow {
+        if (!isSupported()) {
+            close()
+            return@callbackFlow
         }
+        val job = launch {
+            // 从此 Origin 下曾经授权过的设备中按 ID 过滤
+            val allDevices = runCatching {
+                navigator.bluetooth!!.getDevices().await<JsArray<BluetoothDevice>>()
+            }.getOrNull()
+            if (allDevices != null) {
+                for (i in 0 until allDevices.length) {
+                    val device = allDevices[i] ?: continue
+                    if (addresses.contains(device.id)) {
+                        trySend(BleDevice(
+                            name = device.name ?: "Unknown",
+                            address = device.id,
+                            rssi = 0,
+                            obj = device
+                        ))
+                    }
+                }
+            }
+            close()
+        }
+        awaitClose { job.cancel() }
     }
 
     @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")

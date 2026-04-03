@@ -6,6 +6,9 @@ import com.d10ng.bluetooth.constant.CBManagerStateEnum
 import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.CoroutineScope
+import platform.CoreBluetooth.CBUUID
+import platform.CoreBluetooth.CBPeripheral
+import platform.Foundation.NSUUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
@@ -48,11 +51,13 @@ object IosBleManager: ABleManager() {
         }
     }
 
-    override fun scan(): Flow<BleDevice> = callbackFlow {
+    override fun scan(serviceUuids: List<String>): Flow<BleDevice> = callbackFlow {
 
         fun startScan() {
             IosOperationRunner.centralManager.stopScan()
-            IosOperationRunner.centralManager.scanForPeripheralsWithServices(null, null)
+            val services = if (serviceUuids.isEmpty()) null
+                           else serviceUuids.map { CBUUID.UUIDWithString(it) }
+            IosOperationRunner.centralManager.scanForPeripheralsWithServices(services, null)
             log.d { "开始扫描" }
         }
 
@@ -90,6 +95,25 @@ object IosBleManager: ABleManager() {
             IosOperationRunner.centralManager.stopScan()
             eventsJob.cancel()
         }
+    }
+
+    override fun scanByAddress(addresses: List<String>): Flow<BleDevice> = callbackFlow {
+        // iOS 不暴露真实 MAC，address 存的是 CBPeripheral.identifier.UUIDString
+        // 通过 retrievePeripheralsWithIdentifiers 直接查找已知外设，无需启动扫描
+        val uuids = addresses.map { NSUUID(uUIDString = it) }
+        @Suppress("UNCHECKED_CAST")
+        val peripherals = IosOperationRunner.centralManager
+            .retrievePeripheralsWithIdentifiers(uuids) as List<CBPeripheral>
+        peripherals.forEach { peripheral ->
+            trySend(BleDevice(
+                name = peripheral.name,
+                address = peripheral.address,
+                rssi = 0,
+                obj = peripheral
+            ))
+        }
+        close()
+        awaitClose { }
     }
 
     override suspend fun connect(device: BleDevice): ABleConnection {

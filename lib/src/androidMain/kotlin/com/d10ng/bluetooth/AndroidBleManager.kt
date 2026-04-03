@@ -6,8 +6,11 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.os.ParcelUuid
+import java.util.UUID
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -113,7 +116,7 @@ object AndroidBleManager: ABleManager() {
     }
 
     @SuppressLint("MissingPermission")
-    override fun scan(): Flow<BleDevice> = callbackFlow {
+    override fun scan(serviceUuids: List<String>): Flow<BleDevice> = callbackFlow {
         val scanner = bluetoothManager?.adapter?.bluetoothLeScanner
         if (scanner == null) {
             close(IllegalStateException("Bluetooth scanner not available"))
@@ -146,34 +149,87 @@ object AndroidBleManager: ABleManager() {
 
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
-                result?: return
+                result ?: return
                 log.d { "[ScanCallback.onScanResult] callbackType: $callbackType, result: $result" }
-                val bleDevice = BleDevice(result.device.name, result.device.address, result.rssi, result.device)
-                trySend(bleDevice)
+                trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
             }
-
             override fun onBatchScanResults(results: List<ScanResult?>?) {
-                // 批量结果，表示扫描结束
                 log.d { "[ScanCallback.onBatchScanResults] results: $results" }
-                // 结束
                 close()
             }
-
             override fun onScanFailed(errorCode: Int) {
                 log.w { "[ScanCallback.onScanFailed] Scan failed with error code $errorCode" }
                 close(Exception("Scan failed with error code $errorCode"))
             }
         }
 
-        scanner.startScan(null, scanSettings, callback)
+        scanner.startScan(
+            if (serviceUuids.isEmpty()) null
+            else serviceUuids.map { ScanFilter.Builder().setServiceUuid(ParcelUuid(UUID.fromString(it))).build() },
+            scanSettings,
+            callback
+        )
 
         // 当 flow 被取消时停止扫描
         awaitClose {
-            runCatching {
-                scanner.stopScan(callback)
-            }.onFailure { e ->
-                log.w { "stopScan failed: ${e.message}" }
+            runCatching { scanner.stopScan(callback) }
+                .onFailure { e -> log.w { "stopScan failed: ${e.message}" } }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    override fun scanByAddress(addresses: List<String>): Flow<BleDevice> = callbackFlow {
+        val scanner = bluetoothManager?.adapter?.bluetoothLeScanner
+        if (scanner == null) {
+            close(IllegalStateException("Bluetooth scanner not available"))
+            return@callbackFlow
+        }
+
+        val isAndroidOver30 = Build.VERSION.SDK_INT > Build.VERSION_CODES.R
+        if (!isAndroidOver30 && !PermissionManager.request(locationPermissionArray)) {
+            close(Exception("missing location permission"))
+            return@callbackFlow
+        }
+        if (!isAndroidOver30 && !isLocationEnabled()) {
+            close(Exception("location off"))
+            return@callbackFlow
+        }
+        if (!PermissionManager.request(bluetoothPermissionArray)) {
+            close(Exception("missing bluetooth permission"))
+            return@callbackFlow
+        }
+
+        launch {
+            isEnabledFlow.collect { isEnabled ->
+                if (!isEnabled) close(Exception("Bluetooth disabled"))
             }
+        }
+
+        val callback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult?) {
+                result ?: return
+                log.d { "[scanByAddress.onScanResult] callbackType: $callbackType, result: $result" }
+                trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
+            }
+            override fun onBatchScanResults(results: List<ScanResult?>?) {
+                log.d { "[scanByAddress.onBatchScanResults] results: $results" }
+                close()
+            }
+            override fun onScanFailed(errorCode: Int) {
+                log.w { "[scanByAddress.onScanFailed] errorCode: $errorCode" }
+                close(Exception("Scan failed with error code $errorCode"))
+            }
+        }
+
+        scanner.startScan(
+            addresses.map { ScanFilter.Builder().setDeviceAddress(it).build() },
+            scanSettings,
+            callback
+        )
+
+        awaitClose {
+            runCatching { scanner.stopScan(callback) }
+                .onFailure { e -> log.w { "stopScan failed: ${e.message}" } }
         }
     }
 

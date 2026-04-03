@@ -5,7 +5,7 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-[![Latest](https://img.shields.io/badge/version-0.6.4-blue)](#)
+[![Latest](https://img.shields.io/badge/version-0.7.0-blue)](#)
 [![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
@@ -72,7 +72,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.6.4")
+            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.7.0")
         }
     }
 }
@@ -153,11 +153,18 @@ suspend fun demo(scope: CoroutineScope) {
     // 可多次调用以注册多个服务 UUID；仅在 Web 平台有效
     registerWebBleUseService("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 
-    // 扫描设备（Web 端一次只返回一个设备，且需要用户手势触发）
+    // 扫描设备：可按服务 UUID 过滤，为空时扫描所有设备
+    // （Web 端一次只返回一个设备，且需要用户手势触发）
     val devices = mutableListOf<BleDevice>()
-    ble.scan().collect { dev ->
+    ble.scan(serviceUuids = listOf("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")).collect { dev ->
         val valid = !dev.name.isNullOrBlank() && dev.name != "Unknown"
         if (valid && devices.none { it.address == dev.address }) devices += dev
+    }
+
+    // 或直接按已知地址查找设备（用于重连场景）
+    // Android 传 MAC 地址；iOS 传 CBPeripheral identifier UUID；Web 传 device.id
+    ble.scanByAddress(listOf("AA:BB:CC:DD:EE:FF")).collect { dev ->
+        devices += dev
     }
 
     val device = devices.firstOrNull() ?: return
@@ -213,7 +220,8 @@ suspend fun demo(scope: CoroutineScope) {
   - `val isEnabledFlow: MutableStateFlow<Boolean>` 蓝牙模块开启状态
   - `fun isSupportEnable(): Boolean` 是否支持代码开启蓝牙（主要 Android）
   - `suspend fun enable()` 开启蓝牙（若支持）
-  - `fun scan(): Flow<BleDevice>` 扫描设备（Web 端一次请求返回一个）
+  - `fun scan(serviceUuids: List<String> = emptyList()): Flow<BleDevice>` 按服务 UUID 过滤扫描，为空时扫描所有设备（Web 端一次请求返回一个）
+  - `fun scanByAddress(addresses: List<String>): Flow<BleDevice>` 按设备地址查找已知设备（Android 传 MAC 地址，iOS 传 CBPeripheral identifier UUID，Web 传 device.id），适用于重连场景；iOS/Web 端从系统缓存直接返回，不启动扫描
   - `suspend fun connect(device: BleDevice): ABleConnection` 连接设备，返回连接对象
 
 - `ABleConnection`

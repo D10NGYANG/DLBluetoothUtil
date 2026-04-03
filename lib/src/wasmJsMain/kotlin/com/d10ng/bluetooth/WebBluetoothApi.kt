@@ -27,6 +27,11 @@ fun createJsBluetoothRequestOptions(
     optionalServices: JsArray<JsString>,
 ) : JsAny = js("({ acceptAllDevices: acceptAllDevices, optionalServices: optionalServices })")
 
+fun createJsBluetoothRequestOptionsWithFilters(
+    serviceFilters: JsArray<JsString>,
+    optionalServices: JsArray<JsString>,
+) : JsAny = js("({ filters: [{ services: serviceFilters }], optionalServices: optionalServices })")
+
 external interface BluetoothDevice : JsAny {
     val gatt: BluetoothRemoteGATTServer
     val id: String

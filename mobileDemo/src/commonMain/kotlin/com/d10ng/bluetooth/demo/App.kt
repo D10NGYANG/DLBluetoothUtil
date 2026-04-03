@@ -177,7 +177,13 @@ private fun DeviceListScreen(
             runCatching {
                 bleManager.scan().collect { dev ->
                     val validName = !dev.name.isNullOrBlank() && dev.name != "Unknown"
-                    if (validName && devices.none { it.address == dev.address }) devices.add(dev)
+                    val idx = devices.indexOfFirst { it.address == dev.address }
+                    if (idx >= 0) {
+                        // 已存在：更新信号值
+                        devices[idx] = devices[idx].copy(rssi = dev.rssi)
+                    } else if (validName) {
+                        devices.add(dev)
+                    }
                 }
             }.onFailure {
                 scanning = false

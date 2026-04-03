@@ -59,33 +59,66 @@ object WebBleManager: ABleManager() {
         optionalServices.add(uuid)
     }
 
-    override fun scan(): Flow<BleDevice> = callbackFlow {
+    override fun scan(serviceUuids: List<String>): Flow<BleDevice> = callbackFlow {
         if (!isSupported()) {
             close()
             return@callbackFlow
         }
         val job = launch {
             val options = js("{}")
-            options.acceptAllDevices = true
-            options.optionalServices = optionalServices.toTypedArray()
+            if (serviceUuids.isEmpty()) {
+                options.acceptAllDevices = true
+                options.optionalServices = optionalServices.toTypedArray()
+            } else {
+                val filter = js("{}")
+                filter.services = serviceUuids.toTypedArray()
+                options.filters = arrayOf(filter)
+                options.optionalServices = (optionalServices + serviceUuids).toTypedArray()
+            }
             val device = runCatching {
                 (bluetooth.requestDevice(options) as Promise<dynamic>).await()
             }.getOrNull()
 
             if (device != null) {
-                val ble = BleDevice(
+                trySend(BleDevice(
                     name = device.name ?: "Unknown",
                     address = device.id,
                     rssi = 0,
                     obj = device
-                )
-                trySend(ble)
+                ))
             }
             close()
         }
-        awaitClose {
-            job.cancel()
+        awaitClose { job.cancel() }
+    }
+
+    override fun scanByAddress(addresses: List<String>): Flow<BleDevice> = callbackFlow {
+        if (!isSupported()) {
+            close()
+            return@callbackFlow
         }
+        val job = launch {
+            // 从此 Origin 下曾经授权过的设备中按 ID 过滤
+            val allDevices = runCatching {
+                (bluetooth.getDevices() as Promise<dynamic>).await()
+            }.getOrNull()
+            if (allDevices != null) {
+                val len = allDevices.length as Int
+                for (i in 0 until len) {
+                    val device = allDevices[i]
+                    if (addresses.contains(device.id as String)) {
+                        trySend(BleDevice(
+                            name = device.name as? String ?: "Unknown",
+                            address = device.id as String,
+                            rssi = 0,
+                            obj = device
+                        ))
+                    }
+                }
+            }
+            close()
+        }
+        awaitClose { job.cancel() }
     }
 
     override suspend fun connect(device: BleDevice): ABleConnection {

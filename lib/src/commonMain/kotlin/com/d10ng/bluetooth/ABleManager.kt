@@ -33,9 +33,20 @@ abstract class ABleManager {
 
     /**
      * 开始扫描
+     * @param serviceUuids 需要过滤的服务UUID列表，为空时扫描所有设备
      * @return Flow<BluetoothDevice>
      */
-    abstract fun scan(): Flow<BleDevice>
+    abstract fun scan(serviceUuids: List<String> = emptyList()): Flow<BleDevice>
+
+    /**
+     * 扫描指定地址的设备（用于重连已知设备）
+     * Android 传入 MAC 地址（如 "AA:BB:CC:DD:EE:FF"）；
+     * iOS 传入 CBPeripheral.identifier UUID；
+     * JS/WasmJS 传入 BluetoothDevice.id。
+     * @param addresses 设备地址列表
+     * @return Flow<BleDevice>
+     */
+    abstract fun scanByAddress(addresses: List<String>): Flow<BleDevice>
 
     /**
      * 连接设备
