@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
+import android.bluetooth.BluetoothStatusCodes
 import android.os.Build
 
 /**
@@ -25,12 +26,12 @@ fun BluetoothGattCharacteristic.executeWrite(
     gatt: BluetoothGatt,
     payload: ByteArray,
     writeType: Int
-) {
+): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        gatt.writeCharacteristic(this, payload, writeType)
+        return gatt.writeCharacteristic(this, payload, writeType) == BluetoothStatusCodes.SUCCESS
     } else {
         // Fall back to deprecated version of writeCharacteristic for Android <13
-        legacyCharacteristicWrite(gatt, payload, writeType)
+        return legacyCharacteristicWrite(gatt, payload, writeType)
     }
 }
 
@@ -41,10 +42,10 @@ private fun BluetoothGattCharacteristic.legacyCharacteristicWrite(
     gatt: BluetoothGatt,
     payload: ByteArray,
     writeType: Int
-) {
+): Boolean {
     this.writeType = writeType
     value = payload
-    gatt.writeCharacteristic(this)
+    return gatt.writeCharacteristic(this)
 }
 
 
@@ -52,12 +53,12 @@ private fun BluetoothGattCharacteristic.legacyCharacteristicWrite(
 fun BluetoothGattDescriptor.executeWrite(
     gatt: BluetoothGatt,
     payload: ByteArray
-) {
+): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        gatt.writeDescriptor(this, payload)
+        return gatt.writeDescriptor(this, payload) == BluetoothStatusCodes.SUCCESS
     } else {
         // Fall back to deprecated version of writeDescriptor for Android <13
-        legacyDescriptorWrite(gatt, payload)
+        return legacyDescriptorWrite(gatt, payload)
     }
 }
 
@@ -67,7 +68,7 @@ fun BluetoothGattDescriptor.executeWrite(
 private fun BluetoothGattDescriptor.legacyDescriptorWrite(
     gatt: BluetoothGatt,
     payload: ByteArray
-) {
+): Boolean {
     value = payload
-    gatt.writeDescriptor(this)
+    return gatt.writeDescriptor(this)
 }

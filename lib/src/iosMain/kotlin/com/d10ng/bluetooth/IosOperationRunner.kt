@@ -7,6 +7,7 @@ import com.d10ng.bluetooth.constant.CBCentralManagerEvent
 import com.d10ng.bluetooth.constant.CBPeripheralEvent
 import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
@@ -58,55 +59,67 @@ object IosOperationRunner {
 
     init {
         scope.launch {
-            for (operation in OperationManager.queueChannel) {
-                when (operation) {
-                    is OperationType.Connect -> {
-                        // 连接
-                        launch { connect(operation) }
-                    }
-                    is OperationType.DiscoverServices -> {
-                        // 服务发现
-                        launch { discoverServices(operation) }
-                    }
-                    is OperationType.Notify -> {
-                        // 开关通知
-                        launch { notify(operation) }
-                    }
-                    is OperationType.Write -> {
-                        // 写入
-                        launch { write(operation) }
-                    }
-                    is OperationType.MtuChanged -> {
-                        // 修改MTU
-                        launch { requestMtu(operation) }
+            for (request in OperationManager.queueChannel) {
+                val operation = request.operation
+                val job = launch(start = CoroutineStart.LAZY) {
+                    when (operation) {
+                        is OperationType.Connect -> {
+                            // 连接
+                            connect(request, operation)
+                        }
+                        is OperationType.DiscoverServices -> {
+                            // 服务发现
+                            discoverServices(request, operation)
+                        }
+                        is OperationType.Notify -> {
+                            // 开关通知
+                            notify(request, operation)
+                        }
+                        is OperationType.Write -> {
+                            // 写入
+                            write(request, operation)
+                        }
+                        is OperationType.MtuChanged -> {
+                            // 修改MTU
+                            requestMtu(request, operation)
+                        }
                     }
                 }
+                request.result.invokeOnCompletion {
+                    if (request.result.isCancelled) job.cancel()
+                }
+                job.start()
             }
         }
     }
 
-    private suspend fun connect(operation: OperationType.Connect) {
+    private suspend fun connect(request: OperationRequest, operation: OperationType.Connect) {
         val device = operation.obj as CBPeripheral
         centralManager.connectPeripheral(device, null)
-        val event = BleCentralEvents.first<CBCentralManagerEvent.DidConnectResult>(operation.address)
-        if (event.result) {
-            log.d { "[OperationType.Connect] success 连接成功" }
-            OperationManager.resultFlow.tryEmit(operation.success(event.peripheral))
-        } else {
-            log.d { "[OperationType.Connect] fail 连接失败" }
-            OperationManager.resultFlow.tryEmit(operation.fail())
+        var delivered = false
+        try {
+            val event = BleCentralEvents.first<CBCentralManagerEvent.DidConnectResult>(operation.address)
+            if (event.result) {
+                log.d { "[OperationType.Connect] success 连接成功" }
+                delivered = request.result.complete(operation.success(event.peripheral))
+            } else {
+                log.d { "[OperationType.Connect] fail 连接失败" }
+                request.result.complete(operation.fail())
+            }
+        } finally {
+            if (!delivered) centralManager.cancelPeripheralConnection(device)
         }
     }
 
     @OptIn(ExperimentalUuidApi::class)
-    private suspend fun discoverServices(operation: OperationType.DiscoverServices) {
+    private suspend fun discoverServices(request: OperationRequest, operation: OperationType.DiscoverServices) {
         val device = operation.obj as CBPeripheral
         device.delegate = CBPeripheralDelegate
         device.discoverServices(null)
         val event = BlePeripheralEvents.first<CBPeripheralEvent.DidDiscoverServices>(operation.address)
         if (event.services.isNullOrEmpty()) {
             log.d { "[OperationType.DiscoverServices] fail 获取服务失败" }
-            OperationManager.resultFlow.tryEmit(operation.fail())
+            request.result.complete(operation.fail())
             return
         }
         val list = event.services.map { service ->
@@ -131,24 +144,24 @@ object IosOperationRunner {
                 service
             )
         }
-        OperationManager.resultFlow.tryEmit(operation.success(map))
+        request.result.complete(operation.success(map))
     }
 
-    private fun notify(operation: OperationType.Notify) {
+    private fun notify(request: OperationRequest, operation: OperationType.Notify) {
         val device = operation.obj as CBPeripheral
         val characteristic = operation.characteristic.obj as CBCharacteristic
         if (!operation.characteristic.properties.contains(BleGattCharacteristicProperty.NOTIFY)) {
             log.w { "[OperationType.Notify] fail 特征不支持通知" }
-            OperationManager.resultFlow.tryEmit(operation.fail())
+            request.result.complete(operation.fail())
             return
         }
         if (characteristic.isNotifying != operation.enable) {
             device.setNotifyValue(operation.enable, characteristic)
         }
-        OperationManager.resultFlow.tryEmit(operation.success())
+        request.result.complete(operation.success())
     }
 
-    private suspend fun write(operation: OperationType.Write) {
+    private suspend fun write(request: OperationRequest, operation: OperationType.Write) {
         val device = operation.obj as CBPeripheral
         val characteristic = operation.characteristic.obj as CBCharacteristic
         val writeType = when {
@@ -156,7 +169,7 @@ object IosOperationRunner {
             operation.characteristic.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) -> CBCharacteristicWriteWithoutResponse
             else -> {
                 log.w { "[OperationType.Write] fail 特征不支持写入" }
-                OperationManager.resultFlow.tryEmit(operation.fail())
+                request.result.complete(operation.fail())
                 return
             }
         }
@@ -165,19 +178,19 @@ object IosOperationRunner {
             val event = BlePeripheralEvents.first<CBPeripheralEvent.DidWriteValueForCharacteristic>(device.address)
             if (!event.result) {
                 log.w { "[OperationTypeWrite] fail 写入失败" }
-                OperationManager.resultFlow.tryEmit(operation.fail())
+                request.result.complete(operation.fail())
                 return
             }
-            OperationManager.resultFlow.tryEmit(operation.success())
+            request.result.complete(operation.success())
         } else {
             BlePeripheralEvents.first<CBPeripheralEvent.IsReadyToSendWriteWithoutResponse>(device.address)
-            OperationManager.resultFlow.tryEmit(operation.success())
+            request.result.complete(operation.success())
         }
     }
 
-    private fun requestMtu(operation: OperationType.MtuChanged) {
+    private fun requestMtu(request: OperationRequest, operation: OperationType.MtuChanged) {
         val device = operation.obj as CBPeripheral
         val mtu = device.maximumWriteValueLengthForType(CBCharacteristicWriteWithoutResponse)
-        OperationManager.resultFlow.tryEmit(operation.success(mtu.toInt()))
+        request.result.complete(operation.success(mtu.toInt()))
     }
 }

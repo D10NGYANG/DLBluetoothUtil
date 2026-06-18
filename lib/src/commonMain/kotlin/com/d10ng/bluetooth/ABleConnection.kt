@@ -4,6 +4,7 @@ import com.d10ng.bluetooth.constant.BleDevice
 import com.d10ng.bluetooth.constant.BleGattCharacteristic
 import com.d10ng.bluetooth.constant.BleGattNotifyData
 import com.d10ng.bluetooth.constant.BleGattService
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -20,6 +21,7 @@ abstract class ABleConnection(
         const val GATT_MAX_MTU_SIZE = 517
         const val GATT_MIN_MTU_SIZE = 23
         const val CCC_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805F9B34FB"
+        private const val NOTIFY_BUFFER_CAPACITY = 64
     }
 
     // 连接状态
@@ -32,7 +34,10 @@ abstract class ABleConnection(
     val notifyStatusFlow = MutableStateFlow<List<BleGattCharacteristic>>(listOf())
 
     // 通知数据
-    val notifyDataFlow = MutableSharedFlow<BleGattNotifyData>(extraBufferCapacity = Int.MAX_VALUE)
+    val notifyDataFlow = MutableSharedFlow<BleGattNotifyData>(
+        extraBufferCapacity = NOTIFY_BUFFER_CAPACITY,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
 
     /**
      * 发现服务
@@ -64,4 +69,5 @@ abstract class ABleConnection(
      * 断开连接
      */
     abstract fun disconnect()
+
 }

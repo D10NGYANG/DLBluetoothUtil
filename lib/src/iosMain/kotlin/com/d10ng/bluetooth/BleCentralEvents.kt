@@ -2,6 +2,7 @@ package com.d10ng.bluetooth
 
 import com.d10ng.bluetooth.constant.CBCentralManagerEvent
 import com.d10ng.bluetooth.constant.CBManagerStateEnum
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -14,7 +15,10 @@ object BleCentralEvents {
     val stateFlow = MutableStateFlow(CBManagerStateEnum.Unknown)
 
     // 蓝牙事件（适度缓冲）
-    val eventFlow = MutableSharedFlow<CBCentralManagerEvent>(extraBufferCapacity = Int.MAX_VALUE)
+    val eventFlow = MutableSharedFlow<CBCentralManagerEvent>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
 
     suspend inline fun <reified T : CBCentralManagerEvent> first(
         address: String,

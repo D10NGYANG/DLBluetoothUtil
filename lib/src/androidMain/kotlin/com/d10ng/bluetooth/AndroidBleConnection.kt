@@ -13,9 +13,13 @@ import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.uuid.ExperimentalUuidApi
 
 /**
@@ -31,11 +35,14 @@ class AndroidBleConnection(
     val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val ready = CompletableDeferred<Unit>()
+    private val closed = AtomicBoolean(false)
+    private val disconnecting = AtomicBoolean(false)
 
     init {
         scope.launch {
-            launch {
+            launch(start = CoroutineStart.UNDISPATCHED) {
                 BleGattCallbackInstant.eventFlow.collect {
+                    if (it.gatt !== gatt) return@collect
                     when (it) {
                         is BleGattEvent.OnConnectionStateChange -> {
                             if (it.newState == BluetoothProfile.STATE_DISCONNECTED) handleDisconnected()
@@ -104,13 +111,38 @@ class AndroidBleConnection(
 
     @SuppressLint("MissingPermission")
     override fun disconnect() {
-        runCatching { gatt.close() }
-        handleDisconnected()
+        if (closed.get() || !disconnecting.compareAndSet(false, true)) return
+        markDisconnected()
+        runCatching { gatt.disconnect() }
+            .onFailure { closeGatt() }
+        scope.launch {
+            delay(DISCONNECT_CLOSE_TIMEOUT_MILLIS)
+            closeGatt()
+        }
     }
 
+    @SuppressLint("MissingPermission")
     private fun handleDisconnected() {
+        markDisconnected()
+        closeGatt()
+    }
+
+    private fun markDisconnected() {
+        disconnecting.set(true)
         isConnectedFlow.value = false
-        servicesFlow.value = listOf()
-        notifyStatusFlow.value = listOf()
+        servicesFlow.value = emptyList()
+        notifyStatusFlow.value = emptyList()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun closeGatt() {
+        if (!closed.compareAndSet(false, true)) return
+        runCatching { gatt.close() }
+        AndroidOperationRunner.release(gatt)
+        scope.cancel()
+    }
+
+    private companion object {
+        const val DISCONNECT_CLOSE_TIMEOUT_MILLIS = 1_000L
     }
 }

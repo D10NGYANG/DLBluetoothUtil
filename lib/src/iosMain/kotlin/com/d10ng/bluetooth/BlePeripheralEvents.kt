@@ -1,6 +1,7 @@
 package com.d10ng.bluetooth
 
 import com.d10ng.bluetooth.constant.CBPeripheralEvent
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 
@@ -9,7 +10,10 @@ import kotlinx.coroutines.flow.first
  */
 object BlePeripheralEvents {
     // Keep buffer small to avoid heavy static init
-    val eventFlow = MutableSharedFlow<CBPeripheralEvent>(extraBufferCapacity = Int.MAX_VALUE)
+    val eventFlow = MutableSharedFlow<CBPeripheralEvent>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
 
     suspend inline fun <reified T : CBPeripheralEvent> first(
         address: String,

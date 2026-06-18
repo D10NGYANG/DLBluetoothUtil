@@ -22,12 +22,12 @@ class WebBleConnection(
 ) : ABleConnection(device) {
 
     private val notifyHandlerMap = mutableMapOf<String, (dynamic) -> Unit>()
+    private val notifyCharacteristicMap = mutableMapOf<String, dynamic>()
+    private val disconnectHandler: (dynamic) -> Unit = { handleDisconnected() }
 
     init {
         runCatching {
-            device.obj.asDynamic().addEventListener("gattserverdisconnected") { _ ->
-                handleDisconnected()
-            }
+            device.obj.asDynamic().addEventListener("gattserverdisconnected", disconnectHandler)
         }
     }
 
@@ -97,6 +97,7 @@ class WebBleConnection(
                 notifyDataFlow.tryEmit(BleGattNotifyData(characteristic, byteArray))
             }
             notifyHandlerMap[uuidKey] = handler
+            notifyCharacteristicMap[uuidKey] = ch
             ch.addEventListener("characteristicvaluechanged", handler)
         } else {
             log.i { "Web: stop notifications ${characteristic.uuid}" }
@@ -104,6 +105,7 @@ class WebBleConnection(
             notifyHandlerMap.remove(uuidKey)?.let { h ->
                 ch.removeEventListener("characteristicvaluechanged", h)
             }
+            notifyCharacteristicMap.remove(uuidKey)
         }
         val ls = notifyStatusFlow.value.filter { it.uuid != characteristic.uuid }.toMutableList()
         if (enable) ls += characteristic
@@ -116,8 +118,17 @@ class WebBleConnection(
     }
 
     private fun handleDisconnected() {
+        if (!isConnectedFlow.value) return
         isConnectedFlow.value = false
         servicesFlow.value = listOf()
         notifyStatusFlow.value = listOf()
+        notifyHandlerMap.forEach { (uuid, handler) ->
+            notifyCharacteristicMap[uuid]?.removeEventListener("characteristicvaluechanged", handler)
+        }
+        notifyHandlerMap.clear()
+        notifyCharacteristicMap.clear()
+        runCatching {
+            device.obj.asDynamic().removeEventListener("gattserverdisconnected", disconnectHandler)
+        }
     }
 }

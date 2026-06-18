@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.github.D10NGYANG"
-version = "0.7.0"
+version = "0.8.0"
 
 kotlin {
     androidTarget {
@@ -34,6 +34,10 @@ kotlin {
             implementation(libs.kotlinx.coroutines)
             // 日志
             implementation(libs.dl.log)
+        }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
         }
         androidMain.dependencies {
             // Android

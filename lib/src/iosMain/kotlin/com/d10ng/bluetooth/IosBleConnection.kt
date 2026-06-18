@@ -10,10 +10,11 @@ import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import platform.CoreBluetooth.CBCharacteristic
@@ -32,13 +33,12 @@ class IosBleConnection(
     private val peripheral = device.obj as CBPeripheral
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private var collectJob: Job? = null
     private val ready = CompletableDeferred<Unit>()
 
     init {
-        collectJob = scope.launch {
+        scope.launch {
             // 监听中心管理器断开事件，更新连接状态
-            launch {
+            launch(start = CoroutineStart.UNDISPATCHED) {
                 BleCentralEvents.eventFlow
                     .filter { event -> event is CBCentralManagerEvent.DidDisconnect }
                     .filter { event -> event.peripheral.address.contentEquals(peripheral.address, true) }
@@ -46,7 +46,7 @@ class IosBleConnection(
             }
 
             // 监听特征值通知，转发为通用通知数据
-            launch {
+            launch(start = CoroutineStart.UNDISPATCHED) {
                 BlePeripheralEvents.eventFlow
                     .filter { event -> event is CBPeripheralEvent.DidUpdateValueForCharacteristic }
                     .filter { event -> event.peripheral.address.contentEquals(peripheral.address, true) }
@@ -107,14 +107,16 @@ class IosBleConnection(
     }
 
     override fun disconnect() {
+        if (!isConnectedFlow.value) return
         runCatching { IosOperationRunner.centralManager.cancelPeripheralConnection(peripheral) }
         handleDisconnected()
     }
 
     private fun handleDisconnected() {
+        if (!isConnectedFlow.value) return
         isConnectedFlow.value = false
         servicesFlow.value = listOf()
         notifyStatusFlow.value = listOf()
-        collectJob?.cancel()
+        scope.cancel()
     }
 }

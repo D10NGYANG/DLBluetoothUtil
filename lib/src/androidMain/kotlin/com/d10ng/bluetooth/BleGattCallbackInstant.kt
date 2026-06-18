@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import com.d10ng.bluetooth.constant.BleGattEvent
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 
@@ -17,7 +18,12 @@ import kotlinx.coroutines.flow.first
 @SuppressLint("MissingPermission")
 object BleGattCallbackInstant: BluetoothGattCallback() {
 
-    val eventFlow = MutableSharedFlow<BleGattEvent>(extraBufferCapacity = Int.MAX_VALUE)
+    val eventFlow = MutableSharedFlow<BleGattEvent>(
+        extraBufferCapacity = EVENT_BUFFER_CAPACITY,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
+    private const val EVENT_BUFFER_CAPACITY = 64
 
     override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
         gatt ?: return
@@ -58,7 +64,7 @@ object BleGattCallbackInstant: BluetoothGattCallback() {
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray
     ) {
-        log.d { "[BluetoothGattCallback.onCharacteristicChanged] device: ${gatt.device.name}, characteristic: ${characteristic.uuid}, value: ${value.toHexString(HexFormat.UpperCase)}" }
+        log.d { "[BluetoothGattCallback.onCharacteristicChanged] device: ${gatt.device.name}, characteristic: ${characteristic.uuid}, bytes: ${value.size}, value: ${value.toHexString(HexFormat.UpperCase)}" }
         eventFlow.tryEmit(BleGattEvent.OnCharacteristicChanged(gatt, characteristic, value))
     }
 
@@ -70,7 +76,7 @@ object BleGattCallbackInstant: BluetoothGattCallback() {
     ) {
         gatt ?: return
         characteristic ?: return
-        log.d { "[BluetoothGattCallback.onCharacteristicChanged] device: ${gatt.device.name}, characteristic: ${characteristic.uuid}, value: ${characteristic.value.toHexString(HexFormat.UpperCase)}" }
+        log.d { "[BluetoothGattCallback.onCharacteristicChanged] device: ${gatt.device.name}, characteristic: ${characteristic.uuid}, bytes: ${characteristic.value.size}, value: ${characteristic.value.toHexString(HexFormat.UpperCase)}" }
         eventFlow.tryEmit(BleGattEvent.OnCharacteristicChanged(gatt, characteristic, characteristic.value))
     }
 

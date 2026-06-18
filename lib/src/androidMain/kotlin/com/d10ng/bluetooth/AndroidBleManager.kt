@@ -10,6 +10,7 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.os.ParcelUuid
+import android.os.SystemClock
 import java.util.UUID
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -147,15 +148,18 @@ object AndroidBleManager: ABleManager() {
             }
         }
 
+        val scanStartedAt = SystemClock.elapsedRealtime()
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 result ?: return
-                log.d { "[ScanCallback.onScanResult] callbackType: $callbackType, result: $result" }
+                log.d { "[ScanCallback.onScanResult] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, callbackType: $callbackType, result: $result" }
                 trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
             }
             override fun onBatchScanResults(results: List<ScanResult?>?) {
-                log.d { "[ScanCallback.onBatchScanResults] results: $results" }
-                close()
+                log.d { "[ScanCallback.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}, results: $results" }
+                results.orEmpty().filterNotNull().forEach { result ->
+                    trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
+                }
             }
             override fun onScanFailed(errorCode: Int) {
                 log.w { "[ScanCallback.onScanFailed] Scan failed with error code $errorCode" }
@@ -163,6 +167,7 @@ object AndroidBleManager: ABleManager() {
             }
         }
 
+        log.d { "[scan.start] serviceUuids: $serviceUuids, mode: LOW_LATENCY" }
         scanner.startScan(
             if (serviceUuids.isEmpty()) null
             else serviceUuids.map { ScanFilter.Builder().setServiceUuid(ParcelUuid(UUID.fromString(it))).build() },
@@ -172,6 +177,7 @@ object AndroidBleManager: ABleManager() {
 
         // 当 flow 被取消时停止扫描
         awaitClose {
+            log.d { "[scan.stop] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}" }
             runCatching { scanner.stopScan(callback) }
                 .onFailure { e -> log.w { "stopScan failed: ${e.message}" } }
         }
@@ -198,6 +204,20 @@ object AndroidBleManager: ABleManager() {
             close(Exception("missing bluetooth permission"))
             return@callbackFlow
         }
+        if (addresses.isEmpty()) {
+            close(IllegalArgumentException("At least one Bluetooth address is required"))
+            return@callbackFlow
+        }
+
+        val validAddressCount = addresses.count { address ->
+            runCatching { bluetoothManager?.adapter?.getRemoteDevice(address) }
+                .onFailure { log.w { "Invalid Bluetooth address: $address" } }
+                .isSuccess
+        }
+        if (validAddressCount != addresses.size) {
+            close(IllegalArgumentException("Invalid Bluetooth address"))
+            return@callbackFlow
+        }
 
         launch {
             isEnabledFlow.collect { isEnabled ->
@@ -205,15 +225,18 @@ object AndroidBleManager: ABleManager() {
             }
         }
 
+        val scanStartedAt = SystemClock.elapsedRealtime()
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 result ?: return
-                log.d { "[scanByAddress.onScanResult] callbackType: $callbackType, result: $result" }
+                log.d { "[scanByAddress.onScanResult] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, callbackType: $callbackType, result: $result" }
                 trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
             }
             override fun onBatchScanResults(results: List<ScanResult?>?) {
-                log.d { "[scanByAddress.onBatchScanResults] results: $results" }
-                close()
+                log.d { "[scanByAddress.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}, results: $results" }
+                results.orEmpty().filterNotNull().forEach { result ->
+                    trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
+                }
             }
             override fun onScanFailed(errorCode: Int) {
                 log.w { "[scanByAddress.onScanFailed] errorCode: $errorCode" }
@@ -221,6 +244,7 @@ object AndroidBleManager: ABleManager() {
             }
         }
 
+        log.d { "[scanByAddress.start] addresses: $addresses, mode: LOW_LATENCY" }
         scanner.startScan(
             addresses.map { ScanFilter.Builder().setDeviceAddress(it).build() },
             scanSettings,
@@ -228,6 +252,7 @@ object AndroidBleManager: ABleManager() {
         )
 
         awaitClose {
+            log.d { "[scanByAddress.stop] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}" }
             runCatching { scanner.stopScan(callback) }
                 .onFailure { e -> log.w { "stopScan failed: ${e.message}" } }
         }
@@ -237,7 +262,12 @@ object AndroidBleManager: ABleManager() {
         val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, device.obj!!))
         if (result == null || !result.result) throw Exception("Connect failed")
         val connection = AndroidBleConnection(device, result.obj as BluetoothGatt)
-        connection.awaitReady()
-        return connection
+        return try {
+            connection.awaitReady()
+            connection
+        } catch (exception: Throwable) {
+            connection.disconnect()
+            throw exception
+        }
     }
 }

@@ -20,14 +20,14 @@ class WebBleConnection(
 ) : ABleConnection(device) {
 
     private val notifyHandlerMap = mutableMapOf<String, (Event) -> Unit>()
+    private val notifyCharacteristicMap = mutableMapOf<String, BluetoothRemoteGATTCharacteristic>()
+    private val disconnectHandler: (JsAny) -> Unit = { handleDisconnected() }
 
     init {
         runCatching {
             @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
             val d = device.obj as BluetoothDevice
-            d.addEventListener("gattserverdisconnected") { _ ->
-                handleDisconnected()
-            }
+            d.addEventListener("gattserverdisconnected", disconnectHandler)
         }
     }
 
@@ -103,6 +103,7 @@ class WebBleConnection(
                 notifyDataFlow.tryEmit(BleGattNotifyData(characteristic, byteArray))
             }
             notifyHandlerMap[uuidKey] = handler
+            notifyCharacteristicMap[uuidKey] = ch
             ch.addEventListener("characteristicvaluechanged", handler)
         } else {
             log.i { "Web: stop notifications ${characteristic.uuid}" }
@@ -110,6 +111,7 @@ class WebBleConnection(
             notifyHandlerMap.remove(uuidKey)?.let { h ->
                 ch.removeEventListener("characteristicvaluechanged", h)
             }
+            notifyCharacteristicMap.remove(uuidKey)
         }
         val ls = notifyStatusFlow.value.filter { it.uuid != characteristic.uuid }.toMutableList()
         if (enable) ls += characteristic
@@ -122,8 +124,19 @@ class WebBleConnection(
     }
 
     private fun handleDisconnected() {
+        if (!isConnectedFlow.value) return
         isConnectedFlow.value = false
         servicesFlow.value = listOf()
         notifyStatusFlow.value = listOf()
+        notifyHandlerMap.forEach { (uuid, handler) ->
+            notifyCharacteristicMap[uuid]?.removeEventListener("characteristicvaluechanged", handler)
+        }
+        notifyHandlerMap.clear()
+        notifyCharacteristicMap.clear()
+        runCatching {
+            @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
+            val d = device.obj as BluetoothDevice
+            d.removeEventListener("gattserverdisconnected", disconnectHandler)
+        }
     }
 }

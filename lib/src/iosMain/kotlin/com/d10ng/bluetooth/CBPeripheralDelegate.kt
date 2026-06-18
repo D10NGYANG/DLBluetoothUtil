@@ -59,7 +59,7 @@ internal val CBPeripheralDelegate: CBPeripheralDelegateProtocol = object : NSObj
         // 订阅通知更新
         val data = didUpdateValueForCharacteristic.value?.toByteArray()?: return
         val ch = didUpdateValueForCharacteristic
-        log.d { "[CBPeripheralDelegate.didUpdateValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${ch.serviceUUIDString}, characteristic: ${ch.UUIDString}, error: $error, data: ${data.toHexString(HexFormat.UpperCase)}" }
+        log.d { "[CBPeripheralDelegate.didUpdateValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${ch.serviceUUIDString}, characteristic: ${ch.UUIDString}, error: $error, bytes: ${data.size}, data: ${data.toHexString(HexFormat.UpperCase)}" }
         BlePeripheralEvents.eventFlow.tryEmit(CBPeripheralEvent.DidUpdateValueForCharacteristic(peripheral, ch, data))
     }
 

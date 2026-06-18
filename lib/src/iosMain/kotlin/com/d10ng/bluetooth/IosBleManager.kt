@@ -121,7 +121,12 @@ object IosBleManager: ABleManager() {
         val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, peripheral))
         if (result == null || !result.result) throw Exception("Connect failed")
         val connection = IosBleConnection(device)
-        connection.awaitReady()
-        return connection
+        return try {
+            connection.awaitReady()
+            connection
+        } catch (exception: Throwable) {
+            connection.disconnect()
+            throw exception
+        }
     }
 }
