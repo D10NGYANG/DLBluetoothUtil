@@ -1,9 +1,13 @@
 package com.d10ng.bluetooth.constant
 
 /**
- * 通知数据
- * @Author d10ng
- * @Date 2025/9/29 10:41
+ * 一次 GATT 通知或指示事件。
+ *
+ * [data] 使用内容相等性参与 [equals] 和 [hashCode]，但数组本身仍可变；收到后不应原地修改，
+ * 需要长期保存时应复制。
+ *
+ * @property characteristic 产生事件的跨平台特征。
+ * @property data 原生回调提供的 payload。
  */
 data class BleGattNotifyData(
     val characteristic: BleGattCharacteristic,

@@ -61,18 +61,18 @@ object AndroidBleManager: ABleManager() {
                         when (state) {
                             BluetoothAdapter.STATE_ON -> {
                                 log.d { "Bluetooth is enabled" }
-                                isEnabledFlow.value = true
+                                mutableIsEnabledFlow.value = true
                             }
                             BluetoothAdapter.STATE_OFF -> {
                                 log.d { "Bluetooth is disabled" }
-                                isEnabledFlow.value = false
+                                mutableIsEnabledFlow.value = false
                             }
                         }
                     }
                 }
             }
         }, intentFilter)
-        isEnabledFlow.value = bluetoothManager?.adapter?.isEnabled ?: false
+        mutableIsEnabledFlow.value = bluetoothManager?.adapter?.isEnabled ?: false
     }
 
     override fun isSupported(): Boolean {
@@ -152,11 +152,11 @@ object AndroidBleManager: ABleManager() {
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 result ?: return
-                log.d { "[ScanCallback.onScanResult] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, callbackType: $callbackType, result: $result" }
+                log.d { "[ScanCallback.onScanResult] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, callbackType: $callbackType, rssi: ${result.rssi}" }
                 trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
             }
             override fun onBatchScanResults(results: List<ScanResult?>?) {
-                log.d { "[ScanCallback.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}, results: $results" }
+                log.d { "[ScanCallback.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}" }
                 results.orEmpty().filterNotNull().forEach { result ->
                     trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
                 }
@@ -229,11 +229,11 @@ object AndroidBleManager: ABleManager() {
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 result ?: return
-                log.d { "[scanByAddress.onScanResult] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, callbackType: $callbackType, result: $result" }
+                log.d { "[scanByAddress.onScanResult] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, callbackType: $callbackType, rssi: ${result.rssi}" }
                 trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
             }
             override fun onBatchScanResults(results: List<ScanResult?>?) {
-                log.d { "[scanByAddress.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}, results: $results" }
+                log.d { "[scanByAddress.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}" }
                 results.orEmpty().filterNotNull().forEach { result ->
                     trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
                 }
@@ -259,7 +259,9 @@ object AndroidBleManager: ABleManager() {
     }
 
     override suspend fun connect(device: BleDevice): ABleConnection {
-        val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, device.obj!!))
+        val nativeDevice = device.nativeHandle as? android.bluetooth.BluetoothDevice
+            ?: throw IllegalArgumentException("BleDevice does not contain an Android BluetoothDevice")
+        val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, nativeDevice))
         if (result == null || !result.result) throw Exception("Connect failed")
         val connection = AndroidBleConnection(device, result.obj as BluetoothGatt)
         return try {

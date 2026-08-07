@@ -32,7 +32,7 @@ object WebBleManager: ABleManager() {
         scope.launch {
             if (isSupported()) {
                 val available = navigator.bluetooth!!.getAvailability().await<JsBoolean>()
-                isEnabledFlow.value = available.toBoolean()
+                mutableIsEnabledFlow.value = available.toBoolean()
             }
         }
     }
@@ -81,7 +81,7 @@ object WebBleManager: ABleManager() {
                     name = device.name ?: "Unknown",
                     address = device.id,
                     rssi = 0,
-                    obj = device
+                    nativeHandle = device
                 ))
             }
             close()
@@ -107,7 +107,7 @@ object WebBleManager: ABleManager() {
                             name = device.name ?: "Unknown",
                             address = device.id,
                             rssi = 0,
-                            obj = device
+                            nativeHandle = device
                         ))
                     }
                 }
@@ -119,7 +119,7 @@ object WebBleManager: ABleManager() {
 
     @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
     override suspend fun connect(device: BleDevice): ABleConnection {
-        val d = device.obj as BluetoothDevice
+        val d = device.nativeHandle as BluetoothDevice
         val gatt = d.gatt.connect().await<BluetoothRemoteGATTServer>()
         return WebBleConnection(device, gatt)
     }

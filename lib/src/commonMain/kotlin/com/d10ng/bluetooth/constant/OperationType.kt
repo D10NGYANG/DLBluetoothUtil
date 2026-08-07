@@ -1,11 +1,12 @@
 package com.d10ng.bluetooth.constant
 
 /**
- * 蓝牙操作类型
- * @Author d10ng
- * @Date 2025/9/29 15:49
+ * Manager/Connection 与平台 Runner 之间的内部操作协议。
+ *
+ * [address] 是串行调度键，[timeoutMillis] 覆盖等待地址锁、入队和原生回调的完整时间。
+ * [Connect.obj] 等 `Any` 字段只承载平台句柄，不得提升到公共 Interface。
  */
-sealed class OperationType(
+internal sealed class OperationType(
     open val address: String,
     val timeoutMillis: Long = 5000
 ) {

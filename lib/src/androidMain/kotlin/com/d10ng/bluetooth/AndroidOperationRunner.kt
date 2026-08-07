@@ -16,28 +16,26 @@ import com.d10ng.bluetooth.constant.BleGattService
 import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.ExperimentalUuidApi
 
 /**
- * Android操作执行器
- * @Author d10ng
- * @Date 2025/9/29 16:41
+ * 将 [OperationManager] 请求适配为 Android `BluetoothGatt` 调用。
+ *
+ * 队列只有此处消费。每个请求在独立子协程中执行，使不同设备能够并发；同设备串行由
+ * [OperationManager] 保证。除连接外的原生回调通过 [BleGattCallbackInstant.eventFlow] 关联回
+ * 当前请求，连接结果使用独立的 `CompletableDeferred`，避免共享流丢失首次快速回调。
  */
 @SuppressLint("MissingPermission")
 object AndroidOperationRunner {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val gattLocks = ConcurrentHashMap<BluetoothGatt, Mutex>()
-
     fun start() {
         log.d { "AndroidOperationRunner start" }
     }
@@ -47,18 +45,13 @@ object AndroidOperationRunner {
             for (request in OperationManager.queueChannel) {
                 val operation = request.operation
                 val job = launch(start = CoroutineStart.LAZY) {
-                    val execute: suspend () -> Unit = {
-                        when (operation) {
-                            is OperationType.Connect -> connect(request, operation)
-                            is OperationType.DiscoverServices -> discoverServices(request, operation)
-                            is OperationType.Notify -> notify(request, operation)
-                            is OperationType.Write -> write(request, operation)
-                            is OperationType.MtuChanged -> requestMtu(request, operation)
-                        }
+                    when (operation) {
+                        is OperationType.Connect -> connect(request, operation)
+                        is OperationType.DiscoverServices -> discoverServices(request, operation)
+                        is OperationType.Notify -> notify(request, operation)
+                        is OperationType.Write -> write(request, operation)
+                        is OperationType.MtuChanged -> requestMtu(request, operation)
                     }
-                    val gatt = operation.gattOrNull()
-                    if (gatt == null) execute()
-                    else gattLocks.computeIfAbsent(gatt) { Mutex() }.withLock { execute() }
                 }
                 request.result.invokeOnCompletion {
                     if (request.result.isCancelled) job.cancel()
@@ -68,26 +61,13 @@ object AndroidOperationRunner {
         }
     }
 
-    fun release(gatt: BluetoothGatt) {
-        gattLocks.remove(gatt)
-    }
-
-    private fun OperationType.gattOrNull(): BluetoothGatt? = when (this) {
-        is OperationType.Connect -> null
-        is OperationType.DiscoverServices -> obj as? BluetoothGatt
-        is OperationType.Notify -> obj as? BluetoothGatt
-        is OperationType.Write -> obj as? BluetoothGatt
-        is OperationType.MtuChanged -> obj as? BluetoothGatt
-    }
-
     private suspend fun connect(request: OperationRequest, operation: OperationType.Connect) {
         val device = operation.obj as BluetoothDevice
-        val gatt = device.connectGatt(ctx, false, BleGattCallbackInstant)
+        val connectionResult = CompletableDeferred<BleGattEvent.OnConnectionStateChange>()
+        val gatt = device.connectGatt(ctx, false, BleGattCallbackInstant(connectionResult))
         var delivered = false
         try {
-            val event = BleGattCallbackInstant.first<BleGattEvent.OnConnectionStateChange>(operation.address) {
-                it.gatt === gatt
-            }
+            val event = connectionResult.await()
             if (event.status != BluetoothGatt.GATT_SUCCESS || event.newState != BluetoothProfile.STATE_CONNECTED) {
                 log.w { "[OperationType.Connect] fail 连接失败, status=${event.status}, newState=${event.newState}" }
                 request.result.complete(operation.fail())
@@ -142,8 +122,10 @@ object AndroidOperationRunner {
     @OptIn(ExperimentalUuidApi::class)
     private suspend fun notify(request: OperationRequest, operation: OperationType.Notify) {
         val gatt = operation.obj as BluetoothGatt
-        val characteristic = operation.characteristic.obj as BluetoothGattCharacteristic
-        if (!operation.characteristic.properties.contains(BleGattCharacteristicProperty.NOTIFY)) {
+        val characteristic = operation.characteristic.nativeHandle as BluetoothGattCharacteristic
+        val supportsNotify = operation.characteristic.properties.contains(BleGattCharacteristicProperty.NOTIFY)
+        val supportsIndicate = operation.characteristic.properties.contains(BleGattCharacteristicProperty.INDICATE)
+        if (!supportsNotify && !supportsIndicate) {
             log.w { "[OperationType.Notify] fail 特征不支持通知" }
             request.result.complete(operation.fail())
             return
@@ -159,12 +141,13 @@ object AndroidOperationRunner {
             request.result.complete(operation.fail())
             return
         }
-        val value = if (operation.enable)
-            BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        else
-            BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+        val value = when {
+            !operation.enable -> BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+            supportsNotify -> BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            else -> BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+        }
         val event = awaitGattEvent<BleGattEvent.OnDescriptorWrite>(operation.address, gatt, {
-            it.descriptor.uuid == descriptor.uuid
+            it.descriptor === descriptor
         }) {
             descriptor.executeWrite(gatt, value)
         }
@@ -181,7 +164,7 @@ object AndroidOperationRunner {
     @OptIn(ExperimentalUuidApi::class)
     private suspend fun write(request: OperationRequest, operation: OperationType.Write) {
         val gatt = operation.obj as BluetoothGatt
-        val characteristic = operation.characteristic.obj as BluetoothGattCharacteristic
+        val characteristic = operation.characteristic.nativeHandle as BluetoothGattCharacteristic
         val writeType = when {
             operation.characteristic.properties.contains(BleGattCharacteristicProperty.WRITE) -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             operation.characteristic.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
@@ -192,7 +175,7 @@ object AndroidOperationRunner {
             }
         }
         val event = awaitGattEvent<BleGattEvent.OnCharacteristicWrite>(operation.address, gatt, {
-            it.characteristic.uuid == characteristic.uuid
+            it.characteristic === characteristic
         }) {
             characteristic.executeWrite(gatt, operation.value, writeType)
         }
@@ -227,6 +210,7 @@ object AndroidOperationRunner {
         crossinline predicate: (T) -> Boolean = { true },
         crossinline start: () -> Boolean
     ): T? = coroutineScope {
+        // UNDISPATCHED 保证先安装回调订阅，再调用可能同步失败或快速回调的原生方法。
         val event = async(start = CoroutineStart.UNDISPATCHED) {
             BleGattCallbackInstant.first<T>(address) { it.gatt === gatt && predicate(it) }
         }

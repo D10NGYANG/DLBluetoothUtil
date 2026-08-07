@@ -11,6 +11,8 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerOptionShowPowerAlertKey
@@ -21,9 +23,11 @@ import platform.CoreBluetooth.CBPeripheral
 import kotlin.uuid.ExperimentalUuidApi
 
 /**
- * ios操作执行器
- * @Author d10ng
- * @Date 2025/9/30 14:19
+ * 将 [OperationManager] 请求适配为 iOS CoreBluetooth 调用。
+ *
+ * 队列只有此处消费。每个请求在独立子协程中执行，使不同 peripheral 能够并发；同一地址的
+ * 串行由 [OperationManager] 保证。所有等待函数都先订阅 delegate 事件，再发起 CoreBluetooth
+ * 操作，以免快速回调发生在订阅建立之前。
  */
 object IosOperationRunner {
 
@@ -95,10 +99,11 @@ object IosOperationRunner {
 
     private suspend fun connect(request: OperationRequest, operation: OperationType.Connect) {
         val device = operation.obj as CBPeripheral
-        centralManager.connectPeripheral(device, null)
         var delivered = false
         try {
-            val event = BleCentralEvents.first<CBCentralManagerEvent.DidConnectResult>(operation.address)
+            val event = awaitCentralEvent<CBCentralManagerEvent.DidConnectResult>(operation.address) {
+                centralManager.connectPeripheral(device, null)
+            }
             if (event.result) {
                 log.d { "[OperationType.Connect] success 连接成功" }
                 delivered = request.result.complete(operation.success(event.peripheral))
@@ -115,18 +120,20 @@ object IosOperationRunner {
     private suspend fun discoverServices(request: OperationRequest, operation: OperationType.DiscoverServices) {
         val device = operation.obj as CBPeripheral
         device.delegate = CBPeripheralDelegate
-        device.discoverServices(null)
-        val event = BlePeripheralEvents.first<CBPeripheralEvent.DidDiscoverServices>(operation.address)
+        val event = awaitPeripheralEvent<CBPeripheralEvent.DidDiscoverServices>(operation.address) {
+            device.discoverServices(null)
+        }
         if (event.services.isNullOrEmpty()) {
             log.d { "[OperationType.DiscoverServices] fail 获取服务失败" }
             request.result.complete(operation.fail())
             return
         }
         val list = event.services.map { service ->
-            device.discoverCharacteristics(null, service)
-            val e = BlePeripheralEvents.first<CBPeripheralEvent.DidDiscoverCharacteristicsForService>(operation.address) {
-                it.peripheral.address.contentEquals(device.address, true)
-                        && it.service.UUIDString.contentEquals(service.UUIDString, true)
+            val e = awaitPeripheralEvent<CBPeripheralEvent.DidDiscoverCharacteristicsForService>(
+                operation.address,
+                { it.service.UUIDString.contentEquals(service.UUIDString, true) }
+            ) {
+                device.discoverCharacteristics(null, service)
             }
             service to (e.characteristics ?: listOf())
         }
@@ -147,23 +154,37 @@ object IosOperationRunner {
         request.result.complete(operation.success(map))
     }
 
-    private fun notify(request: OperationRequest, operation: OperationType.Notify) {
+    private suspend fun notify(request: OperationRequest, operation: OperationType.Notify) {
         val device = operation.obj as CBPeripheral
-        val characteristic = operation.characteristic.obj as CBCharacteristic
-        if (!operation.characteristic.properties.contains(BleGattCharacteristicProperty.NOTIFY)) {
+        val characteristic = operation.characteristic.nativeHandle as CBCharacteristic
+        val supportsNotify = operation.characteristic.properties.contains(BleGattCharacteristicProperty.NOTIFY)
+        val supportsIndicate = operation.characteristic.properties.contains(BleGattCharacteristicProperty.INDICATE)
+        if (!supportsNotify && !supportsIndicate) {
             log.w { "[OperationType.Notify] fail 特征不支持通知" }
             request.result.complete(operation.fail())
             return
         }
-        if (characteristic.isNotifying != operation.enable) {
+        if (characteristic.isNotifying == operation.enable) {
+            request.result.complete(operation.success())
+            return
+        }
+        val event = awaitPeripheralEvent<CBPeripheralEvent.DidUpdateNotificationState>(
+            operation.address,
+            { it.characteristic.matches(characteristic) }
+        ) {
             device.setNotifyValue(operation.enable, characteristic)
+        }
+        if (!event.result || characteristic.isNotifying != operation.enable) {
+            log.w { "[OperationType.Notify] fail 设置通知失败" }
+            request.result.complete(operation.fail())
+            return
         }
         request.result.complete(operation.success())
     }
 
     private suspend fun write(request: OperationRequest, operation: OperationType.Write) {
         val device = operation.obj as CBPeripheral
-        val characteristic = operation.characteristic.obj as CBCharacteristic
+        val characteristic = operation.characteristic.nativeHandle as CBCharacteristic
         val writeType = when {
             operation.characteristic.properties.contains(BleGattCharacteristicProperty.WRITE) -> CBCharacteristicWriteWithResponse
             operation.characteristic.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) -> CBCharacteristicWriteWithoutResponse
@@ -173,9 +194,13 @@ object IosOperationRunner {
                 return
             }
         }
-        device.writeValue(operation.value.toNSData(), characteristic, writeType)
         if (writeType == CBCharacteristicWriteWithResponse) {
-            val event = BlePeripheralEvents.first<CBPeripheralEvent.DidWriteValueForCharacteristic>(device.address)
+            val event = awaitPeripheralEvent<CBPeripheralEvent.DidWriteValueForCharacteristic>(
+                device.address,
+                { it.characteristic.matches(characteristic) }
+            ) {
+                device.writeValue(operation.value.toNSData(), characteristic, writeType)
+            }
             if (!event.result) {
                 log.w { "[OperationTypeWrite] fail 写入失败" }
                 request.result.complete(operation.fail())
@@ -183,7 +208,8 @@ object IosOperationRunner {
             }
             request.result.complete(operation.success())
         } else {
-            BlePeripheralEvents.first<CBPeripheralEvent.IsReadyToSendWriteWithoutResponse>(device.address)
+            awaitCanSendWriteWithoutResponse(device)
+            device.writeValue(operation.value.toNSData(), characteristic, writeType)
             request.result.complete(operation.success())
         }
     }
@@ -193,4 +219,43 @@ object IosOperationRunner {
         val mtu = device.maximumWriteValueLengthForType(CBCharacteristicWriteWithoutResponse)
         request.result.complete(operation.success(mtu.toInt()))
     }
+
+    private suspend inline fun <reified T : CBCentralManagerEvent> awaitCentralEvent(
+        address: String,
+        crossinline start: () -> Unit
+    ): T = coroutineScope {
+        // UNDISPATCHED 是这里的时序约束：订阅必须先于 start()。
+        val event = async(start = CoroutineStart.UNDISPATCHED) {
+            BleCentralEvents.first<T>(address)
+        }
+        start()
+        event.await()
+    }
+
+    private suspend inline fun <reified T : CBPeripheralEvent> awaitPeripheralEvent(
+        address: String,
+        crossinline predicate: (T) -> Boolean = { true },
+        crossinline start: () -> Unit
+    ): T = coroutineScope {
+        // 与中心管理器事件相同，先订阅再发起 peripheral 操作。
+        val event = async(start = CoroutineStart.UNDISPATCHED) {
+            BlePeripheralEvents.first<T>(address, predicate)
+        }
+        start()
+        event.await()
+    }
+
+    private suspend fun awaitCanSendWriteWithoutResponse(device: CBPeripheral) {
+        if (device.canSendWriteWithoutResponse) return
+        coroutineScope {
+            val ready = async(start = CoroutineStart.UNDISPATCHED) {
+                BlePeripheralEvents.first<CBPeripheralEvent.IsReadyToSendWriteWithoutResponse>(device.address)
+            }
+            if (device.canSendWriteWithoutResponse) ready.cancel() else ready.await()
+        }
+    }
+
+    private fun CBCharacteristic.matches(other: CBCharacteristic): Boolean =
+        UUIDString.contentEquals(other.UUIDString, true) &&
+                serviceUUIDString.contentEquals(other.serviceUUIDString, true)
 }

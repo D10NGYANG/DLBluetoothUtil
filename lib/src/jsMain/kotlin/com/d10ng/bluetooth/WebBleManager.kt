@@ -34,7 +34,7 @@ object WebBleManager: ABleManager() {
         scope.launch {
             if (isSupported()) {
                 val available = (js("navigator.bluetooth.getAvailability()") as Promise<dynamic>).await()
-                isEnabledFlow.value = available
+                mutableIsEnabledFlow.value = available
             }
         }
     }
@@ -84,7 +84,7 @@ object WebBleManager: ABleManager() {
                     name = device.name ?: "Unknown",
                     address = device.id,
                     rssi = 0,
-                    obj = device
+                    nativeHandle = device
                 ))
             }
             close()
@@ -111,7 +111,7 @@ object WebBleManager: ABleManager() {
                             name = device.name as? String ?: "Unknown",
                             address = device.id as String,
                             rssi = 0,
-                            obj = device
+                            nativeHandle = device
                         ))
                     }
                 }
@@ -122,7 +122,7 @@ object WebBleManager: ABleManager() {
     }
 
     override suspend fun connect(device: BleDevice): ABleConnection {
-        val gatt = (device.obj.asDynamic().gatt.connect() as Promise<dynamic>).await()
+        val gatt = (device.nativeHandle.asDynamic().gatt.connect() as Promise<dynamic>).await()
         return WebBleConnection(device, gatt)
     }
 }

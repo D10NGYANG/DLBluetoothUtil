@@ -5,7 +5,7 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-[![Latest](https://img.shields.io/badge/version-0.8.0-blue)](#)
+[![Latest](https://img.shields.io/badge/version-0.9.0-blue)](#)
 [![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
@@ -13,6 +13,8 @@
 - 库模块：`/lib`（KMP + Android/iOS/JS/Wasm）
 - 移动端示例：`/mobileDemo`（Android + iOS Framework）
 - Web 示例：`/webDemo`（Kotlin/JS + Wasm）
+- 实现设计：[lib/ARCHITECTURE.md](lib/ARCHITECTURE.md)
+- 更新日志与升级迁移：[CHANGELOG.md](CHANGELOG.md)
 
 **在线预览：[https://d10ngyang.github.io/DLBluetoothUtil/](https://d10ngyang.github.io/DLBluetoothUtil/)**
 
@@ -35,7 +37,7 @@
 | `WRITE`（需要响应）             | 支持      | 支持   | 支持  | 自动选择写入类型并返回成功事件                                             |
 | `WRITE_NO_RESPONSE`（无需响应） | 支持      | 支持   | 支持  | 高速写入；iOS 通过队列空闲事件回传                                         |
 | `NOTIFY`                  | 支持      | 支持   | 支持  | 需启用 CCCD；数据通过 `notifyDataFlow` 下发                           |
-| `INDICATE`                | 不支持     | 部分支持 | 支持  | iOS 底层可用，但当前仅校验 `NOTIFY`；Web 使用 `startNotifications()` 统一处理 |
+| `INDICATE`                | 支持      | 支持   | 支持  | Android 写入 indication CCCD；iOS/Web 使用系统统一通知接口                 |
 | `SIGNED_WRITE`            | 不支持     | 不支持  | 不支持 | 暂未封装该写入类型                                                   |
 | `BROADCAST`               | 不涉及     | 不涉及  | 不涉及 | 广播属性与客户端交互较少                                                |
 | `EXTENDED_PROPS`          | 不涉及     | 不涉及  | 不涉及 | 扩展属性需按业务自定义读取/处理                                            |
@@ -45,7 +47,7 @@
 | 平台            | 代码开启蓝牙 | 最低版本/要求                      | 备注                                 |
 |---------------|--------|------------------------------|------------------------------------|
 | Android       | 支持     | `minSdk 26` / `targetSdk 34` | 需要运行时权限与定位服务（API < 31）；支持 MTU 请求   |
-| iOS (arm64)   | 不支持    | `iOS 15.3+`（示例 `iosApp` 部署）  | 需在 Info.plist 添加蓝牙用途描述与可选后台模式      |
+| iOS (arm64)   | 不可直接开启 | `iOS 15.3+`（示例 `iosApp` 部署）  | `enable()` 仅能触发系统允许的提示流程；需配置用途描述 |
 | Web (JS/Wasm) | 不支持    | 现代支持 Web Bluetooth 的浏览器      | 需要 HTTPS 或 localhost，且必须用户手势触发设备请求 |
 
 ## 安装与集成
@@ -72,11 +74,14 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.8.0")
+            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.9.0")
         }
     }
 }
 ```
+
+从 `0.8.0` 升级时需要适配只读 Flow、数据模型构造方式与原生对象访问 API，完整步骤见
+[0.9.0 升级迁移说明](CHANGELOG.md#从-080-升级到-090)。
 
 ## 日志输出控制
 
@@ -217,7 +222,7 @@ suspend fun demo(scope: CoroutineScope) {
 
 - `ABleManager`
   - `fun isSupported(): Boolean` 判断环境是否支持 BLE
-  - `val isEnabledFlow: MutableStateFlow<Boolean>` 蓝牙模块开启状态
+  - `val isEnabledFlow: StateFlow<Boolean>` 蓝牙模块开启状态（只读）
   - `fun isSupportEnable(): Boolean` 是否支持代码开启蓝牙（主要 Android）
   - `suspend fun enable()` 开启蓝牙（若支持）
   - `fun scan(serviceUuids: List<String> = emptyList()): Flow<BleDevice>` 按服务 UUID 过滤扫描，为空时扫描所有设备（Web 端一次请求返回一个）
@@ -225,25 +230,29 @@ suspend fun demo(scope: CoroutineScope) {
   - `suspend fun connect(device: BleDevice): ABleConnection` 连接设备，返回连接对象
 
 - `ABleConnection`
-  - `val isConnectedFlow: MutableStateFlow<Boolean>` 连接状态
-  - `val servicesFlow: MutableStateFlow<List<BleGattService>>` 服务列表（发现后更新）
-  - `val notifyStatusFlow: MutableStateFlow<List<BleGattCharacteristic>>` 已启用通知的特征列表
-  - `val notifyDataFlow: MutableSharedFlow<BleGattNotifyData>` 通知数据事件流
+  - `val isConnectedFlow: StateFlow<Boolean>` 连接状态（只读）
+  - `val servicesFlow: StateFlow<List<BleGattService>>` 服务列表（发现后更新，只读）
+  - `val notifyStatusFlow: StateFlow<List<BleGattCharacteristic>>` 已启用通知的特征列表（只读）
+  - `val notifyDataFlow: SharedFlow<BleGattNotifyData>` 通知数据事件流（只读）
   - `suspend fun discoverServices(): List<BleGattService>` 发现服务与特征值
-  - `suspend fun requestMaxMtu(): Int` 请求最大写入 MTU（平台受限）
+  - `suspend fun requestMaxMtu(): Int` 获取单次写入的最大 payload 长度（Android 从 MTU 扣除 ATT 头，iOS 使用系统报告值，Web 固定为 20）
   - `suspend fun write(characteristic: BleGattCharacteristic, value: ByteArray)` 写入特征值
   - `suspend fun notify(characteristic: BleGattCharacteristic, enable: Boolean)` 开关通知/指示
   - `fun disconnect()` 断开连接
 
 - 数据模型
-  - `data class BleDevice(val name: String?, val address: String, val rssi: Int, val obj: Any?)`
-  - `data class BleGattService(val uuid: String, val characteristics: List<BleGattCharacteristic>, val obj: Any? = null)`
-  - `data class BleGattCharacteristic(val uuid: String, val serviceUuid: String, val properties: Set<BleGattCharacteristicProperty>, val obj: Any? = null)`
+  - `BleDevice` 提供设备名称、平台地址和信号强度；实例由库创建并持有内部平台句柄，可通过 `withAdvertisement()` 更新名称和信号强度
+  - `BleGattService` 提供服务 UUID 和特征列表；实例由库创建
+  - `BleGattCharacteristic` 提供特征 UUID、服务 UUID 和属性集合；实例由库创建
   - `data class BleGattNotifyData(val characteristic: BleGattCharacteristic, val data: ByteArray)`
   - `enum class BleGattCharacteristicProperty` 包含 `READ`, `WRITE`, `WRITE_NO_RESPONSE`, `NOTIFY`, `INDICATE` 等属性位
 
 - Web 端额外接口
   - `fun registerWebBleUseService(uuid: String)` 在 Web 平台上注册计划访问的 GATT 服务 UUID；必须在调用 `scan()` 或触发 `navigator.bluetooth.requestDevice(...)` 前执行；可重复调用注册多个服务。否则无法获取到服务特征进行通讯。
+
+- 平台原生访问（实验性）
+  - 使用 `@OptIn(ExperimentalNativeBleApi::class)` 后，可通过平台源码集中的扩展函数获取 `BluetoothDevice`、`BluetoothGatt`、`CBPeripheral` 或 Web Bluetooth 对象
+  - 原生访问用于库尚未封装的平台能力；直接断开连接、关闭 GATT 或并发发起 GATT 操作可能破坏库的状态与操作调度
 
 ## 注意事项
 

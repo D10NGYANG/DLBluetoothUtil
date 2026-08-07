@@ -22,15 +22,16 @@ import platform.CoreBluetooth.CBPeripheral
 import kotlin.uuid.ExperimentalUuidApi
 
 /**
- * iOS蓝牙连接
- * @Author d10ng
- * @Date 2025/9/30 17:20
+ * iOS 连接 Adapter。
+ *
+ * 初始化时先订阅中心管理器断开事件和 peripheral 通知，[awaitReady] 完成后管理器才把实例交给
+ * 调用方。连接结束时清空公共状态并取消内部协程，避免旧连接继续接收全局聚合器事件。
  */
-class IosBleConnection(
+internal class IosBleConnection(
     device: BleDevice
 ) : ABleConnection(device) {
 
-    private val peripheral = device.obj as CBPeripheral
+    internal val peripheral = device.nativeHandle as CBPeripheral
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val ready = CompletableDeferred<Unit>()
@@ -47,14 +48,14 @@ class IosBleConnection(
 
             // 监听特征值通知，转发为通用通知数据
             launch(start = CoroutineStart.UNDISPATCHED) {
-                BlePeripheralEvents.eventFlow
-                    .filter { event -> event is CBPeripheralEvent.DidUpdateValueForCharacteristic }
+                BlePeripheralEvents.notificationFlow
                     .filter { event -> event.peripheral.address.contentEquals(peripheral.address, true) }
                     .collect { event ->
-                        event as CBPeripheralEvent.DidUpdateValueForCharacteristic
                         val ch = event.characteristic
                         val data = event.data
-                        notifyDataFlow.tryEmit(BleGattNotifyData(ch.toBleGattCharacteristic(), data))
+                        val characteristic = runCatching { ch.toBleGattCharacteristic() }
+                            .getOrNull() ?: return@collect
+                        mutableNotifyDataFlow.tryEmit(BleGattNotifyData(characteristic, data))
                     }
             }
 
@@ -62,14 +63,12 @@ class IosBleConnection(
         }
     }
 
-    /**
-     * 等待初始化完成
-     */
+    /** 等待内部事件订阅建立；仅由 [IosBleManager] 在返回连接前调用。 */
     suspend fun awaitReady() = ready.await()
 
     @OptIn(ExperimentalUuidApi::class)
     private fun CBCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {
-        return servicesFlow.value
+        return mutableServicesFlow.value
             .first { service -> service.uuid.contentEquals(this.service?.UUIDString, true) }
             .characteristics
             .first { char -> char.uuid.contentEquals(this.UUIDString, true) }
@@ -78,7 +77,7 @@ class IosBleConnection(
     override suspend fun discoverServices(): List<BleGattService> {
         val result = OperationManager.execute<OperationResult.DiscoverServices>(OperationType.DiscoverServices(device.address, peripheral))
         if (result == null || result.services.isEmpty()) throw Exception("discover services failed")
-        servicesFlow.value = result.services
+        mutableServicesFlow.value = result.services
         return result.services
     }
 
@@ -89,7 +88,7 @@ class IosBleConnection(
         } else {
             log.i { "set mtu to ${result.mtu} success" }
         }
-        return (if (result?.result == true) result.mtu else GATT_MIN_MTU_SIZE) - 3
+        return if (result?.result == true) result.mtu else GATT_MIN_MTU_SIZE - 3
     }
 
     override suspend fun write(characteristic: BleGattCharacteristic, value: ByteArray) {
@@ -101,22 +100,20 @@ class IosBleConnection(
     override suspend fun notify(characteristic: BleGattCharacteristic, enable: Boolean) {
         val result = OperationManager.execute<OperationResult.Notify>(OperationType.Notify(device.address, characteristic, enable, peripheral))
         if (result == null || !result.result) throw Exception("notify failed")
-        val ls = notifyStatusFlow.value.filter { it.uuid != characteristic.uuid }.toMutableList()
-        if (enable) ls += characteristic
-        notifyStatusFlow.value = ls
+        updateNotifyStatus(characteristic, enable)
     }
 
     override fun disconnect() {
-        if (!isConnectedFlow.value) return
+        if (!mutableIsConnectedFlow.value) return
         runCatching { IosOperationRunner.centralManager.cancelPeripheralConnection(peripheral) }
         handleDisconnected()
     }
 
     private fun handleDisconnected() {
-        if (!isConnectedFlow.value) return
-        isConnectedFlow.value = false
-        servicesFlow.value = listOf()
-        notifyStatusFlow.value = listOf()
+        if (!mutableIsConnectedFlow.value) return
+        mutableIsConnectedFlow.value = false
+        mutableServicesFlow.value = emptyList()
+        mutableNotifyStatusFlow.value = emptyList()
         scope.cancel()
     }
 }

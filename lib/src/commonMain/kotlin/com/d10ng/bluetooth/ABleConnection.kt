@@ -7,66 +7,113 @@ import com.d10ng.bluetooth.constant.BleGattService
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 蓝牙连接
- * @Author d10ng
- * @Date 2025/9/29 09:34
+ * 一个已建立的 BLE GATT 连接。
+ *
+ * 实例由 [ABleManager.connect] 创建并绑定到 [device]。服务发现、写入和通知订阅通过统一接口
+ * 委托给平台实现；不再使用时必须调用 [disconnect] 释放原生连接和监听器。连接断开后该实例
+ * 不可复用，应重新发现设备并建立新连接。
  */
 abstract class ABleConnection(
+    /** 当前连接对应的设备。 */
     val device: BleDevice
 ) {
 
     companion object {
+        /** Android GATT 允许请求的最大 ATT MTU。 */
         const val GATT_MAX_MTU_SIZE = 517
+
+        /** BLE 默认 ATT MTU。 */
         const val GATT_MIN_MTU_SIZE = 23
+
+        /** Client Characteristic Configuration Descriptor 的标准 UUID。 */
         const val CCC_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805F9B34FB"
         private const val NOTIFY_BUFFER_CAPACITY = 64
     }
 
-    // 连接状态
-    val isConnectedFlow = MutableStateFlow(true)
+    /**
+     * 连接是否仍然有效的只读状态流。
+     *
+     * 新建连接以 `true` 开始；主动或被动断开后变为 `false`，并同步清空 [servicesFlow] 与
+     * [notifyStatusFlow]。
+     */
+    protected val mutableIsConnectedFlow = MutableStateFlow(true)
+    val isConnectedFlow: StateFlow<Boolean> = mutableIsConnectedFlow.asStateFlow()
 
-    // 服务列表
-    val servicesFlow = MutableStateFlow<List<BleGattService>>(listOf())
+    /** 最近一次 [discoverServices] 成功得到的服务列表。 */
+    protected val mutableServicesFlow = MutableStateFlow<List<BleGattService>>(emptyList())
+    val servicesFlow: StateFlow<List<BleGattService>> = mutableServicesFlow.asStateFlow()
 
-    // 订阅通知状态
-    val notifyStatusFlow = MutableStateFlow<List<BleGattCharacteristic>>(listOf())
+    /** 当前由本库成功启用通知或指示的特征列表。 */
+    protected val mutableNotifyStatusFlow = MutableStateFlow<List<BleGattCharacteristic>>(emptyList())
+    val notifyStatusFlow: StateFlow<List<BleGattCharacteristic>> = mutableNotifyStatusFlow.asStateFlow()
 
-    // 通知数据
-    val notifyDataFlow = MutableSharedFlow<BleGattNotifyData>(
+    /** 按特征完整身份更新订阅状态，避免不同服务下相同特征 UUID 相互覆盖。 */
+    protected fun updateNotifyStatus(characteristic: BleGattCharacteristic, enable: Boolean) {
+        val status = mutableNotifyStatusFlow.value.filterNot { it == characteristic }.toMutableList()
+        if (enable) status += characteristic
+        mutableNotifyStatusFlow.value = status
+    }
+
+    /**
+     * 外设主动发送的通知或指示数据。
+     *
+     * 该事件流不重放历史值，并额外缓冲 64 条。消费者落后时丢弃最旧事件，以避免原生回调线程
+     * 被阻塞和内存无界增长。协议不能容忍丢包时，调用方必须增加序号、确认或重传机制。
+     */
+    protected val mutableNotifyDataFlow = MutableSharedFlow<BleGattNotifyData>(
         extraBufferCapacity = NOTIFY_BUFFER_CAPACITY,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
+    val notifyDataFlow: SharedFlow<BleGattNotifyData> = mutableNotifyDataFlow.asSharedFlow()
 
     /**
-     * 发现服务
-     * @return List<BluetoothGattService> 服务列表
+     * 发现远端 GATT 服务及其特征，并更新 [servicesFlow]。
+     *
+     * @return 当前连接发现的服务快照。
+     * @throws Throwable 连接不可用、平台操作失败或移动端操作超时时抛出异常。
      */
     abstract suspend fun discoverServices(): List<BleGattService>
 
     /**
-     * 请求最大写入MTU
-     * @return Int 设备支持的最大MTU
+     * 获取当前平台可用于单次写入的最大 payload 长度。
+     *
+     * Android 将协商后的 ATT MTU 扣除 3 字节头；iOS 直接使用 CoreBluetooth 报告的最大写入
+     * 长度；请求失败时回退为 20。Web 无法协商 MTU，固定返回 20。返回值用于调用方自行分包，
+     * 而不是原始 ATT MTU。
      */
     abstract suspend fun requestMaxMtu(): Int
 
     /**
-     * 写入特征值
-     * @param characteristic BleGattCharacteristic 特征值
-     * @param value ByteArray 数据
+     * 向 [characteristic] 写入 [value]。
+     *
+     * 实现根据特征属性选择有响应写入或无响应写入。有响应写入等待平台确认；iOS 无响应写入会
+     * 在系统发送队列繁忙时等待可写事件。调用方应按 [requestMaxMtu] 返回值自行分包。
+     *
+     * @throws Throwable 特征不支持写入、连接不可用、平台拒绝或操作超时时抛出异常。
      */
     abstract suspend fun write(characteristic: BleGattCharacteristic, value: ByteArray)
 
     /**
-     * 监听特征值
-     * @param characteristic BleGattCharacteristic 特征值
-     * @param enable Boolean 是否开启监听
+     * 开启或关闭 [characteristic] 的通知/指示。
+     *
+     * 成功后更新 [notifyStatusFlow]，收到的数据从 [notifyDataFlow] 下发。特征必须声明 `NOTIFY`
+     * 或 `INDICATE` 属性。
+     *
+     * @param enable `true` 开启，`false` 关闭。
+     * @throws Throwable 特征不支持、平台配置失败或操作超时时抛出异常。
      */
     abstract suspend fun notify(characteristic: BleGattCharacteristic, enable: Boolean)
 
     /**
-     * 断开连接
+     * 主动断开并释放当前连接持有的原生资源。
+     *
+     * 该操作幂等且不等待平台断开回调；状态会立即反映到 [isConnectedFlow]。
      */
     abstract fun disconnect()
 

@@ -180,7 +180,10 @@ private fun DeviceListScreen(
                     val idx = devices.indexOfFirst { it.address == dev.address }
                     if (idx >= 0) {
                         // 已存在：更新信号值
-                        devices[idx] = devices[idx].copy(rssi = dev.rssi)
+                        devices[idx] = devices[idx].withAdvertisement(
+                            name = dev.name ?: devices[idx].name,
+                            rssi = dev.rssi
+                        )
                     } else if (validName) {
                         devices.add(dev)
                     }

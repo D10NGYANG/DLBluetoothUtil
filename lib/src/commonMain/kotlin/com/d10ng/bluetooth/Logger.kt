@@ -9,5 +9,5 @@ import com.d10ng.log.LoggerFactory
  */
 internal val log by lazy { LoggerFactory.create("Bluetooth") }
 
-// 提供给外部使用的日志名，避免冲突
+/** 本库使用的日志实例，可用于统一调整日志级别或接入日志收集。 */
 val BluetoothManagerLog by lazy { log }

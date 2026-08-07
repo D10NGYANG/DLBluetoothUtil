@@ -12,22 +12,23 @@ import org.khronos.webgl.get
 import kotlin.js.Promise
 
 /**
- * Web蓝牙连接
- * @Author d10ng
- * @Date 2025/10/11 15:22
+ * Kotlin/JS 的 Web Bluetooth 连接 Adapter。
+ *
+ * 浏览器 Promise 本身承担操作完成确认，因此不经过移动端的回调队列。每个通知特征只保留一个
+ * DOM listener；重复启用会先移除旧 listener，断开时统一释放，避免重连后重复分发。
  */
-class WebBleConnection(
+internal class WebBleConnection(
     device: BleDevice,
-    private val gatt: dynamic
+    internal val gatt: dynamic
 ) : ABleConnection(device) {
 
-    private val notifyHandlerMap = mutableMapOf<String, (dynamic) -> Unit>()
-    private val notifyCharacteristicMap = mutableMapOf<String, dynamic>()
+    private val notifyHandlerMap = mutableMapOf<Pair<String, String>, (dynamic) -> Unit>()
+    private val notifyCharacteristicMap = mutableMapOf<Pair<String, String>, dynamic>()
     private val disconnectHandler: (dynamic) -> Unit = { handleDisconnected() }
 
     init {
         runCatching {
-            device.obj.asDynamic().addEventListener("gattserverdisconnected", disconnectHandler)
+            device.nativeHandle.asDynamic().addEventListener("gattserverdisconnected", disconnectHandler)
         }
     }
 
@@ -57,6 +58,7 @@ class WebBleConnection(
                 service
             ))
         }
+        mutableServicesFlow.value = list
         return list
     }
 
@@ -69,7 +71,7 @@ class WebBleConnection(
         characteristic: BleGattCharacteristic,
         value: ByteArray
     ) {
-        val ch = characteristic.obj.asDynamic()
+        val ch = characteristic.nativeHandle.asDynamic()
         val promise = if (characteristic.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE)) {
             ch.writeValueWithoutResponse(value.toTypedArray()) as Promise<Unit>
         } else {
@@ -82,34 +84,39 @@ class WebBleConnection(
         characteristic: BleGattCharacteristic,
         enable: Boolean
     ) {
-        val ch = characteristic.obj.asDynamic()
-        val uuidKey = characteristic.uuid
+        val ch = characteristic.nativeHandle.asDynamic()
+        val characteristicKey = characteristic.serviceUuid.lowercase() to characteristic.uuid.lowercase()
         if (enable) {
             log.i { "Web: start notifications ${characteristic.uuid}" }
             (ch.startNotifications() as Promise<Unit>).await()
+            notifyHandlerMap.remove(characteristicKey)?.let { oldHandler ->
+                notifyCharacteristicMap.remove(characteristicKey)?.removeEventListener(
+                    "characteristicvaluechanged",
+                    oldHandler
+                )
+            }
             val handler: (dynamic) -> Unit = { event ->
                 val dataView = event.target.value as DataView
-                val uint8Array = Uint8Array(dataView.buffer)
+                val uint8Array = Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength)
                 val byteArray = ByteArray(uint8Array.length)
                 for (i in 0 until uint8Array.length) {
                     byteArray[i] = uint8Array[i]
                 }
-                notifyDataFlow.tryEmit(BleGattNotifyData(characteristic, byteArray))
+                mutableNotifyDataFlow.tryEmit(BleGattNotifyData(characteristic, byteArray))
             }
-            notifyHandlerMap[uuidKey] = handler
-            notifyCharacteristicMap[uuidKey] = ch
+            notifyHandlerMap[characteristicKey] = handler
+            notifyCharacteristicMap[characteristicKey] = ch
             ch.addEventListener("characteristicvaluechanged", handler)
         } else {
             log.i { "Web: stop notifications ${characteristic.uuid}" }
-            (ch.stopNotifications() as Promise<Unit>).await()
-            notifyHandlerMap.remove(uuidKey)?.let { h ->
-                ch.removeEventListener("characteristicvaluechanged", h)
+            val registeredCharacteristic = notifyCharacteristicMap[characteristicKey] ?: ch
+            (registeredCharacteristic.stopNotifications() as Promise<Unit>).await()
+            notifyHandlerMap.remove(characteristicKey)?.let { h ->
+                registeredCharacteristic.removeEventListener("characteristicvaluechanged", h)
             }
-            notifyCharacteristicMap.remove(uuidKey)
+            notifyCharacteristicMap.remove(characteristicKey)
         }
-        val ls = notifyStatusFlow.value.filter { it.uuid != characteristic.uuid }.toMutableList()
-        if (enable) ls += characteristic
-        notifyStatusFlow.value = ls
+        updateNotifyStatus(characteristic, enable)
     }
 
     override fun disconnect() {
@@ -118,17 +125,17 @@ class WebBleConnection(
     }
 
     private fun handleDisconnected() {
-        if (!isConnectedFlow.value) return
-        isConnectedFlow.value = false
-        servicesFlow.value = listOf()
-        notifyStatusFlow.value = listOf()
-        notifyHandlerMap.forEach { (uuid, handler) ->
-            notifyCharacteristicMap[uuid]?.removeEventListener("characteristicvaluechanged", handler)
+        if (!mutableIsConnectedFlow.value) return
+        mutableIsConnectedFlow.value = false
+        mutableServicesFlow.value = emptyList()
+        mutableNotifyStatusFlow.value = emptyList()
+        notifyHandlerMap.forEach { (characteristicKey, handler) ->
+            notifyCharacteristicMap[characteristicKey]?.removeEventListener("characteristicvaluechanged", handler)
         }
         notifyHandlerMap.clear()
         notifyCharacteristicMap.clear()
         runCatching {
-            device.obj.asDynamic().removeEventListener("gattserverdisconnected", disconnectHandler)
+            device.nativeHandle.asDynamic().removeEventListener("gattserverdisconnected", disconnectHandler)
         }
     }
 }

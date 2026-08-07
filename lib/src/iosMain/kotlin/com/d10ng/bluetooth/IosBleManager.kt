@@ -32,7 +32,7 @@ object IosBleManager: ABleManager() {
         // 同步系统蓝牙状态到 isEnabledFlow
         scope.launch {
             BleCentralEvents.stateFlow.collect { state ->
-                isEnabledFlow.value = state == CBManagerStateEnum.PoweredOn
+                mutableIsEnabledFlow.value = state == CBManagerStateEnum.PoweredOn
             }
         }
     }
@@ -70,7 +70,7 @@ object IosBleManager: ABleManager() {
                             name = event.name,
                             address = event.peripheral.address,
                             rssi = event.rssi,
-                            obj = event.peripheral
+                            nativeHandle = event.peripheral
                         )
                         trySend(device)
                     }
@@ -109,7 +109,7 @@ object IosBleManager: ABleManager() {
                 name = peripheral.name,
                 address = peripheral.address,
                 rssi = 0,
-                obj = peripheral
+                nativeHandle = peripheral
             ))
         }
         close()
@@ -117,7 +117,8 @@ object IosBleManager: ABleManager() {
     }
 
     override suspend fun connect(device: BleDevice): ABleConnection {
-        val peripheral = device.obj ?: throw Exception("missing peripheral object")
+        val peripheral = device.nativeHandle as? CBPeripheral
+            ?: throw IllegalArgumentException("BleDevice does not contain an iOS CBPeripheral")
         val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, peripheral))
         if (result == null || !result.result) throw Exception("Connect failed")
         val connection = IosBleConnection(device)

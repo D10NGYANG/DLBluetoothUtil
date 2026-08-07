@@ -1,11 +1,11 @@
 package com.d10ng.bluetooth.constant
 
 /**
- * 蓝牙操作结果
- * @Author d10ng
- * @Date 2025/9/29 15:52
+ * 平台 Runner 返回给 Manager/Connection 的内部结果协议。
+ *
+ * 结果只描述平台操作是否完成及必要数据；公共层负责把失败或超时转换成异常、回退值和状态 Flow。
  */
-sealed class OperationResult(
+internal sealed class OperationResult(
     open val address: String
 ) {
     // 连接结果

@@ -99,6 +99,8 @@ external class EventTarget : JsAny {
 
 external class DataView : JsAny {
     val buffer: ArrayBuffer
+    val byteOffset: Int
+    val byteLength: Int
 }
 
 external class ArrayBuffer : JsAny {

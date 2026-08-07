@@ -57,10 +57,16 @@ internal val CBPeripheralDelegate: CBPeripheralDelegateProtocol = object : NSObj
         error: NSError?
     ) {
         // 订阅通知更新
+        if (error != null) {
+            log.w { "[CBPeripheralDelegate.didUpdateValueForCharacteristic] error: $error" }
+            return
+        }
         val data = didUpdateValueForCharacteristic.value?.toByteArray()?: return
         val ch = didUpdateValueForCharacteristic
-        log.d { "[CBPeripheralDelegate.didUpdateValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${ch.serviceUUIDString}, characteristic: ${ch.UUIDString}, error: $error, bytes: ${data.size}, data: ${data.toHexString(HexFormat.UpperCase)}" }
-        BlePeripheralEvents.eventFlow.tryEmit(CBPeripheralEvent.DidUpdateValueForCharacteristic(peripheral, ch, data))
+        log.d { "[CBPeripheralDelegate.didUpdateValueForCharacteristic] service: ${ch.serviceUUIDString}, characteristic: ${ch.UUIDString}, error: $error, bytes: ${data.size}" }
+        BlePeripheralEvents.notificationFlow.tryEmit(
+            CBPeripheralEvent.DidUpdateValueForCharacteristic(peripheral, ch, data)
+        )
     }
 
     @ObjCSignatureOverride
@@ -72,6 +78,19 @@ internal val CBPeripheralDelegate: CBPeripheralDelegateProtocol = object : NSObj
         val ch = didWriteValueForCharacteristic
         log.d { "[CBPeripheralDelegate.didWriteValueForCharacteristic] address: ${peripheral.address}, name: ${peripheral.name()}, service: ${ch.serviceUUIDString}, characteristic: ${ch.UUIDString}, error: $error" }
         BlePeripheralEvents.eventFlow.tryEmit(CBPeripheralEvent.DidWriteValueForCharacteristic(peripheral, ch, error == null))
+    }
+
+    @ObjCSignatureOverride
+    override fun peripheral(
+        peripheral: CBPeripheral,
+        didUpdateNotificationStateForCharacteristic: CBCharacteristic,
+        error: NSError?
+    ) {
+        val ch = didUpdateNotificationStateForCharacteristic
+        log.d { "[CBPeripheralDelegate.didUpdateNotificationState] address: ${peripheral.address}, service: ${ch.serviceUUIDString}, characteristic: ${ch.UUIDString}, error: $error" }
+        BlePeripheralEvents.eventFlow.tryEmit(
+            CBPeripheralEvent.DidUpdateNotificationState(peripheral, ch, error == null)
+        )
     }
 
     override fun peripheral(

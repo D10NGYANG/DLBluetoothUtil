@@ -10,23 +10,24 @@ import com.d10ng.bluetooth.constant.BleGattService
 import kotlinx.coroutines.await
 
 /**
- * Web蓝牙连接
- * @Author d10ng
- * @Date 2025/10/14 17:02
+ * Kotlin/WasmJS 的 Web Bluetooth 连接 Adapter。
+ *
+ * 浏览器 Promise 本身承担操作完成确认，因此不经过移动端的回调队列。每个通知特征只保留一个
+ * DOM listener；重复启用会先移除旧 listener，断开时统一释放，避免重连后重复分发。
  */
-class WebBleConnection(
+internal class WebBleConnection(
     device: BleDevice,
-    private val gatt: BluetoothRemoteGATTServer
+    internal val gatt: BluetoothRemoteGATTServer
 ) : ABleConnection(device) {
 
-    private val notifyHandlerMap = mutableMapOf<String, (Event) -> Unit>()
-    private val notifyCharacteristicMap = mutableMapOf<String, BluetoothRemoteGATTCharacteristic>()
+    private val notifyHandlerMap = mutableMapOf<Pair<String, String>, (Event) -> Unit>()
+    private val notifyCharacteristicMap = mutableMapOf<Pair<String, String>, BluetoothRemoteGATTCharacteristic>()
     private val disconnectHandler: (JsAny) -> Unit = { handleDisconnected() }
 
     init {
         runCatching {
             @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
-            val d = device.obj as BluetoothDevice
+            val d = device.nativeHandle as BluetoothDevice
             d.addEventListener("gattserverdisconnected", disconnectHandler)
         }
     }
@@ -57,6 +58,7 @@ class WebBleConnection(
                 service
             ))
         }
+        mutableServicesFlow.value = list
         return list
     }
 
@@ -70,7 +72,7 @@ class WebBleConnection(
         value: ByteArray
     ) {
         @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
-        val ch = characteristic.obj as BluetoothRemoteGATTCharacteristic
+        val ch = characteristic.nativeHandle as BluetoothRemoteGATTCharacteristic
         val uint8Array = Uint8Array(value.size)
         value.forEachIndexed { index, byte ->
             uint8Array[index] = byte
@@ -88,34 +90,39 @@ class WebBleConnection(
         enable: Boolean
     ) {
         @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
-        val ch = characteristic.obj as BluetoothRemoteGATTCharacteristic
-        val uuidKey = characteristic.uuid
+        val ch = characteristic.nativeHandle as BluetoothRemoteGATTCharacteristic
+        val characteristicKey = characteristic.serviceUuid.lowercase() to characteristic.uuid.lowercase()
         if (enable) {
             log.i { "Web: start notifications ${characteristic.uuid}" }
             ch.startNotifications().await<JsAny>()
+            notifyHandlerMap.remove(characteristicKey)?.let { oldHandler ->
+                notifyCharacteristicMap.remove(characteristicKey)?.removeEventListener(
+                    "characteristicvaluechanged",
+                    oldHandler
+                )
+            }
             val handler: (Event) -> Unit = { event ->
                 val dataView = event.target.value
-                val uint8Array = Uint8Array(dataView.buffer)
+                val uint8Array = Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength)
                 val byteArray = ByteArray(uint8Array.length)
                 for (i in 0 until uint8Array.length) {
                     byteArray[i] = uint8Array[i]
                 }
-                notifyDataFlow.tryEmit(BleGattNotifyData(characteristic, byteArray))
+                mutableNotifyDataFlow.tryEmit(BleGattNotifyData(characteristic, byteArray))
             }
-            notifyHandlerMap[uuidKey] = handler
-            notifyCharacteristicMap[uuidKey] = ch
+            notifyHandlerMap[characteristicKey] = handler
+            notifyCharacteristicMap[characteristicKey] = ch
             ch.addEventListener("characteristicvaluechanged", handler)
         } else {
             log.i { "Web: stop notifications ${characteristic.uuid}" }
-            ch.stopNotifications().await<JsAny>()
-            notifyHandlerMap.remove(uuidKey)?.let { h ->
-                ch.removeEventListener("characteristicvaluechanged", h)
+            val registeredCharacteristic = notifyCharacteristicMap[characteristicKey] ?: ch
+            registeredCharacteristic.stopNotifications().await<JsAny>()
+            notifyHandlerMap.remove(characteristicKey)?.let { h ->
+                registeredCharacteristic.removeEventListener("characteristicvaluechanged", h)
             }
-            notifyCharacteristicMap.remove(uuidKey)
+            notifyCharacteristicMap.remove(characteristicKey)
         }
-        val ls = notifyStatusFlow.value.filter { it.uuid != characteristic.uuid }.toMutableList()
-        if (enable) ls += characteristic
-        notifyStatusFlow.value = ls
+        updateNotifyStatus(characteristic, enable)
     }
 
     override fun disconnect() {
@@ -124,18 +131,18 @@ class WebBleConnection(
     }
 
     private fun handleDisconnected() {
-        if (!isConnectedFlow.value) return
-        isConnectedFlow.value = false
-        servicesFlow.value = listOf()
-        notifyStatusFlow.value = listOf()
-        notifyHandlerMap.forEach { (uuid, handler) ->
-            notifyCharacteristicMap[uuid]?.removeEventListener("characteristicvaluechanged", handler)
+        if (!mutableIsConnectedFlow.value) return
+        mutableIsConnectedFlow.value = false
+        mutableServicesFlow.value = emptyList()
+        mutableNotifyStatusFlow.value = emptyList()
+        notifyHandlerMap.forEach { (characteristicKey, handler) ->
+            notifyCharacteristicMap[characteristicKey]?.removeEventListener("characteristicvaluechanged", handler)
         }
         notifyHandlerMap.clear()
         notifyCharacteristicMap.clear()
         runCatching {
             @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
-            val d = device.obj as BluetoothDevice
+            val d = device.nativeHandle as BluetoothDevice
             d.removeEventListener("gattserverdisconnected", disconnectHandler)
         }
     }
