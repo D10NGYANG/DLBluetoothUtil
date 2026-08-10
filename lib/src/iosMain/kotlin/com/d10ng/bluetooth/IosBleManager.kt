@@ -16,7 +16,9 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlin.time.TimeSource
 
 /**
  * ios蓝牙管理
@@ -26,6 +28,7 @@ import kotlinx.coroutines.withContext
 object IosBleManager: ABleManager() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scanMutex = Mutex()
 
     init {
         IosOperationRunner.start()
@@ -48,17 +51,28 @@ object IosBleManager: ABleManager() {
     override suspend fun enable() {
         if (BleCentralEvents.stateFlow.value == CBManagerStateEnum.PoweredOff) {
             IosOperationRunner.restartCentralManager()
+        } else {
+            log.d {
+                "[bluetooth.enable_ignored] state=${BleCentralEvents.stateFlow.value.name}"
+            }
         }
     }
 
     override fun scan(serviceUuids: List<String>): Flow<BleDevice> = callbackFlow {
+        val startedAt = TimeSource.Monotonic.markNow()
+        if (!scanMutex.tryLock()) {
+            log.w {
+                "[scan.rejected] type=service_filter serviceUuids=$serviceUuids reason=scan_already_active"
+            }
+            close(IllegalStateException("An iOS Bluetooth scan is already active"))
+            return@callbackFlow
+        }
 
         fun startScan() {
-            IosOperationRunner.centralManager.stopScan()
             val services = if (serviceUuids.isEmpty()) null
                            else serviceUuids.map { CBUUID.UUIDWithString(it) }
             IosOperationRunner.centralManager.scanForPeripheralsWithServices(services, null)
-            log.d { "开始扫描" }
+            log.i { "[scan.start] type=service_filter serviceUuids=$serviceUuids" }
         }
 
         // 监听扫描事件并转发为通用设备模型
@@ -72,60 +86,126 @@ object IosBleManager: ABleManager() {
                             rssi = event.rssi,
                             nativeHandle = event.peripheral
                         )
-                        trySend(device)
+                        val delivery = trySend(device)
+                        if (delivery.isFailure && !delivery.isClosed) {
+                            log.w {
+                                "[scan.result_dropped] type=service_filter " +
+                                        "address=${device.address} name=${device.name} error=${delivery.exceptionOrNull()}"
+                            }
+                        }
                     }
                 }
             }
             if (BleCentralEvents.stateFlow.value != CBManagerStateEnum.PoweredOn) {
+                log.w {
+                    "[scan.rejected] type=service_filter serviceUuids=$serviceUuids " +
+                            "reason=bluetooth_disabled state=${BleCentralEvents.stateFlow.value.name}"
+                }
                 close(Exception("Bluetooth disabled"))
             } else {
                 // 监听蓝牙状态关闭
                 launch {
                     isEnabledFlow.collect { isEnabled ->
                         if (!isEnabled) {
+                            log.w {
+                                "[scan.interrupted] type=service_filter " +
+                                        "serviceUuids=$serviceUuids reason=bluetooth_disabled"
+                            }
                             close(Exception("Bluetooth disabled"))
                         }
                     }
                 }
-                withContext(Dispatchers.Main) { startScan() }
+                runCatching { withContext(Dispatchers.Main) { startScan() } }
+                    .onFailure { error ->
+                        log.e {
+                            "[scan.start_failed] type=service_filter serviceUuids=$serviceUuids " +
+                                    "error=${error.stackTraceToString()}"
+                        }
+                        close(error)
+                    }
             }
         }
 
         awaitClose {
-            IosOperationRunner.centralManager.stopScan()
+            log.i {
+                "[scan.stop] type=service_filter serviceUuids=$serviceUuids " +
+                        "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
+            }
+            runCatching { IosOperationRunner.centralManager.stopScan() }.onFailure { error ->
+                log.e {
+                    "[scan.stop_failed] type=service_filter serviceUuids=$serviceUuids " +
+                            "error=${error.stackTraceToString()}"
+                }
+            }
             eventsJob.cancel()
+            scanMutex.unlock()
         }
     }
 
     override fun scanByAddress(addresses: List<String>): Flow<BleDevice> = callbackFlow {
+        log.i { "[scan.start] type=known_addresses addresses=$addresses" }
         // iOS 不暴露真实 MAC，address 存的是 CBPeripheral.identifier.UUIDString
         // 通过 retrievePeripheralsWithIdentifiers 直接查找已知外设，无需启动扫描
-        val uuids = addresses.map { NSUUID(uUIDString = it) }
-        @Suppress("UNCHECKED_CAST")
-        val peripherals = IosOperationRunner.centralManager
-            .retrievePeripheralsWithIdentifiers(uuids) as List<CBPeripheral>
+        val peripherals = runCatching {
+            val uuids = addresses.map { NSUUID(uUIDString = it) }
+            @Suppress("UNCHECKED_CAST")
+            IosOperationRunner.centralManager
+                .retrievePeripheralsWithIdentifiers(uuids) as List<CBPeripheral>
+        }.onFailure { error ->
+            log.e {
+                "[scan.failed] type=known_addresses addresses=$addresses " +
+                        "error=${error.stackTraceToString()}"
+            }
+            close(error)
+        }.getOrNull() ?: return@callbackFlow
         peripherals.forEach { peripheral ->
-            trySend(BleDevice(
+            val foundDevice = BleDevice(
                 name = peripheral.name,
                 address = peripheral.address,
                 rssi = 0,
                 nativeHandle = peripheral
-            ))
+            )
+            log.d {
+                "[scan.result] type=known_addresses address=${foundDevice.address} name=${foundDevice.name}"
+            }
+            val delivery = trySend(foundDevice)
+            if (delivery.isFailure && !delivery.isClosed) {
+                log.w {
+                    "[scan.result_dropped] type=known_addresses " +
+                            "address=${foundDevice.address} name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
+                }
+            }
+        }
+        log.i {
+            "[scan.stop] type=known_addresses addresses=$addresses results=${peripherals.size}"
         }
         close()
         awaitClose { }
     }
 
     override suspend fun connect(device: BleDevice): ABleConnection {
+        val startedAt = TimeSource.Monotonic.markNow()
+        log.i { "[connect.requested] address=${device.address} name=${device.name}" }
         val peripheral = device.nativeHandle as? CBPeripheral
-            ?: throw IllegalArgumentException("BleDevice does not contain an iOS CBPeripheral")
+            ?: run {
+                log.e { "[connect.rejected] address=${device.address} name=${device.name} reason=invalid_native_handle" }
+                throw IllegalArgumentException("BleDevice does not contain an iOS CBPeripheral")
+            }
         val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, peripheral))
         if (result == null || !result.result) throw Exception("Connect failed")
         val connection = IosBleConnection(device)
         return try {
             connection.awaitReady()
+            log.i {
+                "[connect.ready] address=${device.address} name=${device.name} " +
+                        "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
+            }
             connection
         } catch (exception: Throwable) {
+            log.e {
+                "[connect.initialization_failed] address=${device.address} name=${device.name} " +
+                        "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds} error=${exception.stackTraceToString()}"
+            }
             connection.disconnect()
             throw exception
         }

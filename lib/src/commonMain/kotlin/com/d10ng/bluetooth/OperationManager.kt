@@ -3,15 +3,21 @@ package com.d10ng.bluetooth
 import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 internal class OperationRequest(
+    val id: Long,
     val operation: OperationType,
     val result: CompletableDeferred<OperationResult> = CompletableDeferred()
 )
@@ -32,6 +38,8 @@ internal object OperationManager {
     val queueChannel = Channel<OperationRequest>(capacity = Channel.BUFFERED)
     private val lockRegistryMutex = Mutex()
     private val operationLocks = mutableMapOf<String, OperationLock>()
+    private val recoveringAddresses = MutableStateFlow<Set<String>>(emptySet())
+    private var nextOperationId = 0L
 
     private class OperationLock(
         val mutex: Mutex = Mutex(),
@@ -49,24 +57,98 @@ internal object OperationManager {
 
     @PublishedApi
     internal suspend fun executeOperation(operation: OperationType): OperationResult? {
+        val operationId = allocateOperationId()
+        val startedAt = TimeSource.Monotonic.markNow()
+        log.d {
+            "[operation.queued] ${operation.logFields(operationId)} timeoutMs=${operation.timeoutMillis}"
+        }
         val operationLock = acquireLock(operation.address)
         try {
-            return withTimeoutOrNull(operation.timeoutMillis.milliseconds) {
+            val result = withTimeoutOrNull(operation.timeoutMillis.milliseconds) {
                 operationLock.mutex.withLock {
-                    val request = OperationRequest(operation)
+                    recoveringAddresses.first { operation.address !in it }
+                    log.d {
+                        "[operation.recovery_ready] ${operation.logFields(operationId)} " +
+                                "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
+                    }
+                    log.d {
+                        "[operation.started] ${operation.logFields(operationId)} " +
+                                "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
+                    }
+                    val request = OperationRequest(operationId, operation)
+                    var submitted = false
                     try {
                         queueChannel.send(request)
+                        submitted = true
+                        log.d {
+                            "[operation.submitted] ${operation.logFields(operationId)} " +
+                                    "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
+                        }
                         request.result.await()
                     } finally {
-                        if (!request.result.isCompleted) request.result.cancel()
+                        if (!request.result.isCompleted) {
+                            if (submitted) {
+                                markRecovering(operation.address, operationId, operation.logName)
+                            }
+                            request.result.cancel()
+                        }
                     }
                 }
             }
+            val elapsedMs = startedAt.elapsedNow().inWholeMilliseconds
+            if (result == null) {
+                log.w {
+                    "[operation.timeout] ${operation.logFields(operationId)} elapsedMs=$elapsedMs"
+                }
+            } else {
+                log.d {
+                    "[operation.completed] ${operation.logFields(operationId)} " +
+                            "success=${result.succeeded} elapsedMs=$elapsedMs"
+                }
+            }
+            return result
+        } catch (cancellation: CancellationException) {
+            log.w {
+                "[operation.cancelled] ${operation.logFields(operationId)} " +
+                        "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds} " +
+                        "reason=${cancellation.message}"
+            }
+            throw cancellation
+        } catch (error: Throwable) {
+            log.e {
+                "[operation.exception] ${operation.logFields(operationId)} " +
+                        "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds} " +
+                        "error=${error.stackTraceToString()}"
+            }
+            throw error
         } finally {
             withContext(NonCancellable) {
                 releaseLock(operation.address, operationLock)
             }
         }
+    }
+
+    /** 平台已清理取消中的原生操作，可以安全接受同地址的新请求。 */
+    internal fun markRecovered(
+        address: String,
+        operationId: Long = 0,
+        operationName: String = "unknown"
+    ) {
+        recoveringAddresses.update { it - address }
+        log.d {
+            "[operation.recovered] operationId=$operationId operation=$operationName address=$address"
+        }
+    }
+
+    private fun markRecovering(address: String, operationId: Long, operationName: String) {
+        recoveringAddresses.update { it + address }
+        log.w {
+            "[operation.recovering] operationId=$operationId operation=$operationName address=$address"
+        }
+    }
+
+    private suspend fun allocateOperationId(): Long = lockRegistryMutex.withLock {
+        ++nextOperationId
     }
 
     private suspend fun acquireLock(address: String): OperationLock = lockRegistryMutex.withLock {

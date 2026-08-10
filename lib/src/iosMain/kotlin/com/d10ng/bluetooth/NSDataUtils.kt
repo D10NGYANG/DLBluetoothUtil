@@ -18,14 +18,23 @@ import platform.posix.memcpy
 
 
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
-internal fun ByteArray.toNSData(): NSData = memScoped {
-    NSData.create(bytes = allocArrayOf(this@toNSData),
-        length = this@toNSData.size.toULong())
+internal fun ByteArray.toNSData(): NSData {
+    if (isEmpty()) return NSData.create(bytes = null, length = 0uL)
+    return memScoped {
+        NSData.create(
+            bytes = allocArrayOf(this@toNSData),
+            length = this@toNSData.size.toULong()
+        )
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)
-internal fun NSData.toByteArray(): ByteArray = ByteArray(this@toByteArray.length.toInt()).apply {
-    usePinned {
-        memcpy(it.addressOf(0), this@toByteArray.bytes, this@toByteArray.length)
+internal fun NSData.toByteArray(): ByteArray {
+    val size = length.toInt()
+    if (size == 0) return byteArrayOf()
+    return ByteArray(size).apply {
+        usePinned {
+            memcpy(it.addressOf(0), this@toByteArray.bytes, this@toByteArray.length)
+        }
     }
 }

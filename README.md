@@ -5,7 +5,7 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-[![Latest](https://img.shields.io/badge/version-0.9.0-blue)](#)
+[![Latest](https://img.shields.io/badge/version-1.0.0-blue)](#)
 [![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
@@ -15,6 +15,7 @@
 - Web 示例：`/webDemo`（Kotlin/JS + Wasm）
 - 实现设计：[lib/ARCHITECTURE.md](lib/ARCHITECTURE.md)
 - 更新日志与升级迁移：[CHANGELOG.md](CHANGELOG.md)
+- `1.0.0` 升级指南：[docs/MIGRATION_1.0.0.md](docs/MIGRATION_1.0.0.md)
 
 **在线预览：[https://d10ngyang.github.io/DLBluetoothUtil/](https://d10ngyang.github.io/DLBluetoothUtil/)**
 
@@ -74,14 +75,16 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.github.D10NGYANG:DLBluetoothUtil:0.9.0")
+            implementation("com.github.D10NGYANG:DLBluetoothUtil:1.0.0")
         }
     }
 }
 ```
 
-从 `0.8.0` 升级时需要适配只读 Flow、数据模型构造方式与原生对象访问 API，完整步骤见
-[0.9.0 升级迁移说明](CHANGELOG.md#从-080-升级到-090)。
+从 `0.9.0` 升级到 `1.0.0` 不需要修改公共 BLE API 调用，但必须确认 Android 权限归属、蓝牙开启
+结果监听、连接失败策略以及完整通讯日志的数据管理。参见
+[1.0.0 升级指南](docs/MIGRATION_1.0.0.md)。从 `0.8.0` 升级还需先完成
+[0.9.0 API 迁移](CHANGELOG.md#从-080-升级到-090)。
 
 ## 日志输出控制
 
@@ -120,6 +123,12 @@ fun initLogging() {
 
 - 常见日志等级：`VERBOSE`、`DEBUG`、`INFO`、`WARN`、`ERROR`、`NONE`（具体以 DLLogUtil 定义为准）
 - 推荐在应用启动时设置，如：Android 的 `Application.onCreate`、JVM/桌面项目的 `main` 函数、Web 页面初始化等
+- `DEBUG` 会输出完整的 BLE 收发数据，事件名为 `[ble.tx]` 和 `[ble.rx]`，payload 使用大写、连续的
+  HEX 格式，并保留完整设备名称、地址、服务 UUID 和特征 UUID，便于按现场设备反查问题。
+- 通讯日志采用固定位置格式 `设备名@地址 服务UUID/特征UUID 字节数 HEX`，末尾仅按需附加 `op=`、
+  `type=` 等短字段，例如：`[ble.tx] X1E@12:7B:56:E2:37:56 service/characteristic 7B 30302A34440D0A op=2 type=with-rsp`。
+- 设备信息和通讯 payload 可能包含敏感数据；生产环境开启或收集 `DEBUG` 日志时，应限制日志访问、
+  保存周期和外发范围。
 
 
 ## 快速上手（Kotlin 示例）
@@ -257,9 +266,40 @@ suspend fun demo(scope: CoroutineScope) {
 ## 注意事项
 
 ### Android
-- 权限：API < 31 需要 `BLUETOOTH`、`BLUETOOTH_ADMIN`、`ACCESS_COARSE_LOCATION`、`ACCESS_FINE_LOCATION`；API ≥ 31 使用 `BLUETOOTH_SCAN`（含 `neverForLocation`）、`BLUETOOTH_CONNECT`。
+- 库 AAR 不声明蓝牙或定位权限，调用方必须在应用模块的 `AndroidManifest.xml` 中按需声明：
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.ACCESS_COARSE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+</manifest>
+```
+
+- 如果应用会通过蓝牙扫描推导物理位置，不应声明 `neverForLocation`，应根据业务用途调整定位权限配置。
 - 位置服务：在 Android 10/11（API 29/30）上，扫描需要打开位置服务。
-- 运行时权限：需在代码层发起权限请求，示例已处理（`mobileDemo`）。
+- 运行时权限：库只检查权限，不会主动弹出授权界面。调用方需在执行 `enable()`、`scan()`、
+  `scanByAddress()` 或 `connect()` 前，通过 Activity Result API 或自身权限框架完成授权；缺少权限时
+  操作会以异常结束。完整实现见 `mobileDemo` 的 `MainActivity`。
+- `enable()` 会发起 Android 系统蓝牙开启界面并立即返回，不等待用户选择；最终状态以
+  `isEnabledFlow` 为准。系统不允许当前进程启动界面时，该调用会抛出异常。
 - 特征写入与 MTU：`requestMaxMtu()` 的支持取决于设备与系统版本；发送数据需自行分包以满足 MTU 限制。
 
 ### iOS

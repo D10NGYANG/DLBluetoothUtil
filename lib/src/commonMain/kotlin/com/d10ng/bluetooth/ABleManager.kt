@@ -13,8 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * 平台句柄，因此设备应交回同一平台的 [connect]，不应跨平台持久化整个对象；重连时持久化
  * [BleDevice.address] 并使用 [scanByAddress] 重新获取设备。
  *
- * 权限申请、系统开关交互和 Web 用户授权等平台差异由实现处理。各 Flow 的收集和取消语义见
- * 对应成员说明。
+ * 权限检查、系统开关交互和 Web 用户授权等平台差异由实现处理。Android 运行时权限由调用方在
+ * 调用相关操作前申请，库会在访问系统 BLE 能力前再次检查。各 Flow 的收集和取消语义见对应成员说明。
  */
 abstract class ABleManager {
 

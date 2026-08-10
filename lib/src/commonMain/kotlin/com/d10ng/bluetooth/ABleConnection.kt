@@ -11,13 +11,16 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * 一个已建立的 BLE GATT 连接。
  *
  * 实例由 [ABleManager.connect] 创建并绑定到 [device]。服务发现、写入和通知订阅通过统一接口
  * 委托给平台实现；不再使用时必须调用 [disconnect] 释放原生连接和监听器。连接断开后该实例
- * 不可复用，应重新发现设备并建立新连接。
+ * 不可复用，应重新发现设备并建立新连接。库不会因为操作失败、超时或调用协程取消而主动断开
+ * 已交付的连接；连接生命周期只由调用方显式 [disconnect]，或有平台断开回调等明确证据的系统/
+ * 外设断开事件结束。确认连接已断开后，库会清理本地句柄、监听器、协程和公开状态。
  */
 abstract class ABleConnection(
     /** 当前连接对应的设备。 */
@@ -55,9 +58,11 @@ abstract class ABleConnection(
 
     /** 按特征完整身份更新订阅状态，避免不同服务下相同特征 UUID 相互覆盖。 */
     protected fun updateNotifyStatus(characteristic: BleGattCharacteristic, enable: Boolean) {
-        val status = mutableNotifyStatusFlow.value.filterNot { it == characteristic }.toMutableList()
-        if (enable) status += characteristic
-        mutableNotifyStatusFlow.value = status
+        mutableNotifyStatusFlow.update { current ->
+            current.filterNot { it == characteristic }.let { status ->
+                if (enable) status + characteristic else status
+            }
+        }
     }
 
     /**
@@ -76,7 +81,7 @@ abstract class ABleConnection(
      * 发现远端 GATT 服务及其特征，并更新 [servicesFlow]。
      *
      * @return 当前连接发现的服务快照。
-     * @throws Throwable 连接不可用、平台操作失败或移动端操作超时时抛出异常。
+     * @throws Throwable 连接不可用、平台操作失败或移动端操作超时时抛出异常；失败不主动断开连接。
      */
     abstract suspend fun discoverServices(): List<BleGattService>
 
@@ -85,7 +90,7 @@ abstract class ABleConnection(
      *
      * Android 将协商后的 ATT MTU 扣除 3 字节头；iOS 直接使用 CoreBluetooth 报告的最大写入
      * 长度；请求失败时回退为 20。Web 无法协商 MTU，固定返回 20。返回值用于调用方自行分包，
-     * 而不是原始 ATT MTU。
+     * 而不是原始 ATT MTU。失败或超时不会主动断开连接。
      */
     abstract suspend fun requestMaxMtu(): Int
 
@@ -93,7 +98,8 @@ abstract class ABleConnection(
      * 向 [characteristic] 写入 [value]。
      *
      * 实现根据特征属性选择有响应写入或无响应写入。有响应写入等待平台确认；iOS 无响应写入会
-     * 在系统发送队列繁忙时等待可写事件。调用方应按 [requestMaxMtu] 返回值自行分包。
+     * 在系统发送队列繁忙时等待可写事件。调用方应按 [requestMaxMtu] 返回值自行分包。写入超时
+     * 只结束本次调用，不主动断开连接；端到端送达、应答和重试必须由业务协议负责。
      *
      * @throws Throwable 特征不支持写入、连接不可用、平台拒绝或操作超时时抛出异常。
      */
@@ -106,7 +112,7 @@ abstract class ABleConnection(
      * 或 `INDICATE` 属性。
      *
      * @param enable `true` 开启，`false` 关闭。
-     * @throws Throwable 特征不支持、平台配置失败或操作超时时抛出异常。
+     * @throws Throwable 特征不支持、平台配置失败或操作超时时抛出异常；失败不主动断开连接。
      */
     abstract suspend fun notify(characteristic: BleGattCharacteristic, enable: Boolean)
 

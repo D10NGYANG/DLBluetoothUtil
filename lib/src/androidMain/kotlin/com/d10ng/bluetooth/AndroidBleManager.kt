@@ -1,7 +1,6 @@
 package com.d10ng.bluetooth
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothManager
@@ -18,9 +17,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
-import com.d10ng.app.managers.ActivityManager
-import com.d10ng.app.managers.PermissionManager
-import com.d10ng.app.status.isLocationEnabled
 import com.d10ng.bluetooth.constant.BleDevice
 import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
@@ -28,6 +24,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlin.time.TimeSource
 
 /**
  * 蓝牙管理
@@ -37,6 +34,7 @@ import kotlinx.coroutines.launch
 object AndroidBleManager: ABleManager() {
 
     private val bluetoothManager by lazy { ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager? }
+    private val environment by lazy { AndroidBleEnvironment(ctx) }
 
     private val scanSettings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -72,7 +70,22 @@ object AndroidBleManager: ABleManager() {
                 }
             }
         }, intentFilter)
-        mutableIsEnabledFlow.value = bluetoothManager?.adapter?.isEnabled ?: false
+        refreshBluetoothEnabledState()
+    }
+
+    private fun hasBluetoothConnectPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                environment.hasPermissions(arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT))
+
+    @SuppressLint("MissingPermission")
+    private fun refreshBluetoothEnabledState() {
+        mutableIsEnabledFlow.value = if (hasBluetoothConnectPermission()) {
+            runCatching { bluetoothManager?.adapter?.isEnabled == true }
+                .onFailure { error -> log.w { "Unable to read Bluetooth state: ${error.message}" } }
+                .getOrDefault(false)
+        } else {
+            false
+        }
     }
 
     override fun isSupported(): Boolean {
@@ -93,49 +106,59 @@ object AndroidBleManager: ABleManager() {
     override suspend fun enable() {
         if (!isSupported()) {
             // 设备不支持蓝牙
+            log.w { "[bluetooth.enable_failed] reason=unsupported" }
             throw Exception("Device does not support Bluetooth")
         }
-        if (bluetoothManager?.adapter?.isEnabled == true) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !environment.hasPermissions(arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT))
+        ) {
+            log.w { "[bluetooth.enable_failed] reason=missing_connect_permission" }
+            throw SecurityException("missing bluetooth connect permission")
+        }
+        refreshBluetoothEnabledState()
+        if (mutableIsEnabledFlow.value) {
             // 蓝牙已开启
             log.d { "Bluetooth is enabled" }
             return
         }
-        val act = ActivityManager.top()
-        if (act == null) {
-            // 没有当前活动
-            throw Exception("No activity to enable Bluetooth")
-        }
-        // 开启蓝牙
-        val result = ActivityManager.startActivityForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-        if (result.resultCode == Activity.RESULT_OK) {
-            // 用户同意开启
-            log.i { "user agrees to enable Bluetooth" }
-        } else {
-            // 用户拒绝开启
-            log.w { "User does not agree to enable Bluetooth" }
-        }
+        runCatching { environment.requestBluetoothEnable() }
+            .onSuccess { log.i { "[bluetooth.enable_requested]" } }
+            .onFailure { error ->
+                log.e { "[bluetooth.enable_failed] reason=system_dialog_unavailable error=${error.stackTraceToString()}" }
+            }
+            .getOrThrow()
     }
 
     @SuppressLint("MissingPermission")
     override fun scan(serviceUuids: List<String>): Flow<BleDevice> = callbackFlow {
-        val scanner = bluetoothManager?.adapter?.bluetoothLeScanner
-        if (scanner == null) {
-            close(IllegalStateException("Bluetooth scanner not available"))
-            return@callbackFlow
-        }
-
-        // 如果Android API小于30，需要请求定位权限
+        // Android 11 及以下扫描需要调用方先授予定位权限。
         val isAndroidOver30 = Build.VERSION.SDK_INT > Build.VERSION_CODES.R
-        if (!isAndroidOver30 && !PermissionManager.request(locationPermissionArray)) {
+        if (!isAndroidOver30 && !environment.hasPermissions(locationPermissionArray)) {
+            log.w { "[scan.rejected] type=service_filter reason=missing_location_permission" }
             close(Exception("missing location permission"))
             return@callbackFlow
         }
-        if (!isAndroidOver30 && !isLocationEnabled()) {
+        if (!isAndroidOver30 && !environment.isLocationEnabled()) {
+            log.w { "[scan.rejected] type=service_filter reason=location_off" }
             close(Exception("location off"))
             return@callbackFlow
         }
-        if (!PermissionManager.request(bluetoothPermissionArray)) {
+        if (!environment.hasPermissions(bluetoothPermissionArray)) {
+            log.w { "[scan.rejected] type=service_filter reason=missing_bluetooth_permission" }
             close(Exception("missing bluetooth permission"))
+            return@callbackFlow
+        }
+
+        refreshBluetoothEnabledState()
+        if (!mutableIsEnabledFlow.value) {
+            log.w { "[scan.rejected] type=service_filter reason=bluetooth_disabled" }
+            close(Exception("Bluetooth disabled"))
+            return@callbackFlow
+        }
+        val scanner = bluetoothManager?.adapter?.bluetoothLeScanner
+        if (scanner == null) {
+            log.e { "[scan.rejected] type=service_filter reason=scanner_unavailable" }
+            close(IllegalStateException("Bluetooth scanner not available"))
             return@callbackFlow
         }
 
@@ -143,6 +166,7 @@ object AndroidBleManager: ABleManager() {
         launch {
             isEnabledFlow.collect { isEnabled ->
                 if (!isEnabled) {
+                    log.w { "[scan.interrupted] type=service_filter reason=bluetooth_disabled" }
                     close(Exception("Bluetooth disabled"))
                 }
             }
@@ -152,13 +176,37 @@ object AndroidBleManager: ABleManager() {
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 result ?: return
-                log.d { "[ScanCallback.onScanResult] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, callbackType: $callbackType, rssi: ${result.rssi}" }
-                trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
+                val device = BleDevice(result.device.name, result.device.address, result.rssi, result.device)
+                val delivery = trySend(device)
+                if (delivery.isSuccess) {
+                    log.d {
+                        "[scan.result] type=service_filter elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt} " +
+                                "callbackType=$callbackType address=${device.address} name=${device.name} rssi=${device.rssi}"
+                    }
+                } else if (!delivery.isClosed) {
+                    log.w {
+                        "[scan.result_dropped] type=service_filter address=${device.address} " +
+                                "name=${device.name} reason=buffer_unavailable"
+                    }
+                }
             }
             override fun onBatchScanResults(results: List<ScanResult?>?) {
                 log.d { "[ScanCallback.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}" }
                 results.orEmpty().filterNotNull().forEach { result ->
-                    trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
+                    val device = BleDevice(result.device.name, result.device.address, result.rssi, result.device)
+                    val delivery = trySend(device)
+                    if (delivery.isSuccess) {
+                        log.d {
+                            "[scan.result] type=service_filter source=batch " +
+                                    "elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt} address=${device.address} " +
+                                    "name=${device.name} rssi=${device.rssi}"
+                        }
+                    } else if (!delivery.isClosed) {
+                        log.w {
+                            "[scan.result_dropped] type=service_filter address=${device.address} " +
+                                    "name=${device.name} reason=buffer_unavailable"
+                        }
+                    }
                 }
             }
             override fun onScanFailed(errorCode: Int) {
@@ -167,17 +215,25 @@ object AndroidBleManager: ABleManager() {
             }
         }
 
-        log.d { "[scan.start] serviceUuids: $serviceUuids, mode: LOW_LATENCY" }
-        scanner.startScan(
-            if (serviceUuids.isEmpty()) null
-            else serviceUuids.map { ScanFilter.Builder().setServiceUuid(ParcelUuid(UUID.fromString(it))).build() },
-            scanSettings,
-            callback
-        )
+        log.i { "[scan.start] type=service_filter serviceUuids=$serviceUuids mode=LOW_LATENCY" }
+        runCatching {
+            scanner.startScan(
+                if (serviceUuids.isEmpty()) null
+                else serviceUuids.map { ScanFilter.Builder().setServiceUuid(ParcelUuid(UUID.fromString(it))).build() },
+                scanSettings,
+                callback
+            )
+        }.onFailure { error ->
+            log.e {
+                "[scan.start_failed] type=service_filter serviceUuids=$serviceUuids " +
+                        "error=${error.stackTraceToString()}"
+            }
+            close(error)
+        }
 
         // 当 flow 被取消时停止扫描
         awaitClose {
-            log.d { "[scan.stop] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}" }
+            log.i { "[scan.stop] type=service_filter elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt}" }
             runCatching { scanner.stopScan(callback) }
                 .onFailure { e -> log.w { "stopScan failed: ${e.message}" } }
         }
@@ -185,26 +241,36 @@ object AndroidBleManager: ABleManager() {
 
     @SuppressLint("MissingPermission")
     override fun scanByAddress(addresses: List<String>): Flow<BleDevice> = callbackFlow {
-        val scanner = bluetoothManager?.adapter?.bluetoothLeScanner
-        if (scanner == null) {
-            close(IllegalStateException("Bluetooth scanner not available"))
-            return@callbackFlow
-        }
-
         val isAndroidOver30 = Build.VERSION.SDK_INT > Build.VERSION_CODES.R
-        if (!isAndroidOver30 && !PermissionManager.request(locationPermissionArray)) {
+        if (!isAndroidOver30 && !environment.hasPermissions(locationPermissionArray)) {
+            log.w { "[scan.rejected] type=address_filter addresses=$addresses reason=missing_location_permission" }
             close(Exception("missing location permission"))
             return@callbackFlow
         }
-        if (!isAndroidOver30 && !isLocationEnabled()) {
+        if (!isAndroidOver30 && !environment.isLocationEnabled()) {
+            log.w { "[scan.rejected] type=address_filter addresses=$addresses reason=location_off" }
             close(Exception("location off"))
             return@callbackFlow
         }
-        if (!PermissionManager.request(bluetoothPermissionArray)) {
+        if (!environment.hasPermissions(bluetoothPermissionArray)) {
+            log.w { "[scan.rejected] type=address_filter addresses=$addresses reason=missing_bluetooth_permission" }
             close(Exception("missing bluetooth permission"))
             return@callbackFlow
         }
+        refreshBluetoothEnabledState()
+        if (!mutableIsEnabledFlow.value) {
+            log.w { "[scan.rejected] type=address_filter addresses=$addresses reason=bluetooth_disabled" }
+            close(Exception("Bluetooth disabled"))
+            return@callbackFlow
+        }
+        val scanner = bluetoothManager?.adapter?.bluetoothLeScanner
+        if (scanner == null) {
+            log.e { "[scan.rejected] type=address_filter addresses=$addresses reason=scanner_unavailable" }
+            close(IllegalStateException("Bluetooth scanner not available"))
+            return@callbackFlow
+        }
         if (addresses.isEmpty()) {
+            log.w { "[scan.rejected] type=address_filter reason=empty_addresses" }
             close(IllegalArgumentException("At least one Bluetooth address is required"))
             return@callbackFlow
         }
@@ -221,7 +287,10 @@ object AndroidBleManager: ABleManager() {
 
         launch {
             isEnabledFlow.collect { isEnabled ->
-                if (!isEnabled) close(Exception("Bluetooth disabled"))
+                if (!isEnabled) {
+                    log.w { "[scan.interrupted] type=address_filter addresses=$addresses reason=bluetooth_disabled" }
+                    close(Exception("Bluetooth disabled"))
+                }
             }
         }
 
@@ -229,13 +298,37 @@ object AndroidBleManager: ABleManager() {
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 result ?: return
-                log.d { "[scanByAddress.onScanResult] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, callbackType: $callbackType, rssi: ${result.rssi}" }
-                trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
+                val device = BleDevice(result.device.name, result.device.address, result.rssi, result.device)
+                val delivery = trySend(device)
+                if (delivery.isSuccess) {
+                    log.d {
+                        "[scan.result] type=address_filter elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt} " +
+                                "callbackType=$callbackType address=${device.address} name=${device.name} rssi=${device.rssi}"
+                    }
+                } else if (!delivery.isClosed) {
+                    log.w {
+                        "[scan.result_dropped] type=address_filter address=${device.address} " +
+                                "name=${device.name} reason=buffer_unavailable"
+                    }
+                }
             }
             override fun onBatchScanResults(results: List<ScanResult?>?) {
                 log.d { "[scanByAddress.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}" }
                 results.orEmpty().filterNotNull().forEach { result ->
-                    trySend(BleDevice(result.device.name, result.device.address, result.rssi, result.device))
+                    val device = BleDevice(result.device.name, result.device.address, result.rssi, result.device)
+                    val delivery = trySend(device)
+                    if (delivery.isSuccess) {
+                        log.d {
+                            "[scan.result] type=address_filter source=batch " +
+                                    "elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt} address=${device.address} " +
+                                    "name=${device.name} rssi=${device.rssi}"
+                        }
+                    } else if (!delivery.isClosed) {
+                        log.w {
+                            "[scan.result_dropped] type=address_filter address=${device.address} " +
+                                    "name=${device.name} reason=buffer_unavailable"
+                        }
+                    }
                 }
             }
             override fun onScanFailed(errorCode: Int) {
@@ -244,30 +337,58 @@ object AndroidBleManager: ABleManager() {
             }
         }
 
-        log.d { "[scanByAddress.start] addresses: $addresses, mode: LOW_LATENCY" }
-        scanner.startScan(
-            addresses.map { ScanFilter.Builder().setDeviceAddress(it).build() },
-            scanSettings,
-            callback
-        )
+        log.i { "[scan.start] type=address_filter addresses=$addresses mode=LOW_LATENCY" }
+        runCatching {
+            scanner.startScan(
+                addresses.map { ScanFilter.Builder().setDeviceAddress(it).build() },
+                scanSettings,
+                callback
+            )
+        }.onFailure { error ->
+            log.e {
+                "[scan.start_failed] type=address_filter addresses=$addresses " +
+                        "error=${error.stackTraceToString()}"
+            }
+            close(error)
+        }
 
         awaitClose {
-            log.d { "[scanByAddress.stop] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}" }
+            log.i { "[scan.stop] type=address_filter addresses=$addresses elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt}" }
             runCatching { scanner.stopScan(callback) }
                 .onFailure { e -> log.w { "stopScan failed: ${e.message}" } }
         }
     }
 
     override suspend fun connect(device: BleDevice): ABleConnection {
+        val startedAt = TimeSource.Monotonic.markNow()
+        log.i { "[connect.requested] address=${device.address} name=${device.name}" }
         val nativeDevice = device.nativeHandle as? android.bluetooth.BluetoothDevice
-            ?: throw IllegalArgumentException("BleDevice does not contain an Android BluetoothDevice")
+            ?: run {
+                log.e { "[connect.rejected] address=${device.address} name=${device.name} reason=invalid_native_handle" }
+                throw IllegalArgumentException("BleDevice does not contain an Android BluetoothDevice")
+            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !environment.hasPermissions(arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT))
+        ) {
+            log.w { "[connect.rejected] address=${device.address} name=${device.name} reason=missing_connect_permission" }
+            throw SecurityException("missing bluetooth connect permission")
+        }
         val result = OperationManager.execute<OperationResult.Connect>(OperationType.Connect(device.address, nativeDevice))
         if (result == null || !result.result) throw Exception("Connect failed")
-        val connection = AndroidBleConnection(device, result.obj as BluetoothGatt)
+        val connectedGatt = result.obj as AndroidOperationRunner.ConnectedGatt
+        val connection = AndroidBleConnection(device, connectedGatt.gatt, connectedGatt.callback)
         return try {
             connection.awaitReady()
+            log.i {
+                "[connect.ready] address=${device.address} name=${device.name} " +
+                        "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
+            }
             connection
         } catch (exception: Throwable) {
+            log.e {
+                "[connect.initialization_failed] address=${device.address} name=${device.name} " +
+                        "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds} error=${exception.stackTraceToString()}"
+            }
             connection.disconnect()
             throw exception
         }

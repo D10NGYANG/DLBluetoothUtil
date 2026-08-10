@@ -102,7 +102,9 @@ Caller
 - 同一地址从入队到结果/超时完整串行；
 - 不同地址可以并发，Runner 会为每个请求启动独立子协程；
 - 最后一个使用者离开后删除地址锁，避免注册表无限增长；
-- 调用协程取消或操作超时会取消 `OperationRequest.result`，Runner 随之取消等待任务。
+- 调用协程取消或操作超时会取消 `OperationRequest.result`，Runner 随之取消等待任务，但不会改变
+  已建立连接的生命周期；
+- Runner 结束旧等待前，同地址的新请求停留在恢复门禁。
 
 串行范围覆盖连接、服务发现、通知配置、写入和 MTU 请求。此规则保护 Android GATT 和
 CoreBluetooth 的顺序约束，同时允许多个设备互不阻塞。
@@ -122,10 +124,16 @@ CoreBluetooth 的顺序约束，同时允许多个设备互不阻塞。
 超时覆盖等待地址锁、入队、原生调用和回调等待。`OperationManager` 超时返回 `null`，Connection
 Adapter 把失败转换为公共异常；MTU 失败是例外，它回退到默认 payload 长度 20。
 
-Android/iOS 原生操作一旦发起，不一定能被协程真正撤销。超时后迟到的回调仍可能进入全局事件流；
-当前关联条件主要是设备、GATT/peripheral、事件类型和特征，尚无请求 ID。连续对同一特征执行同类
-操作时，迟到事件理论上可能被后续请求接收。扩展调度器时应优先评估为事件增加 generation/token，
-或在超时后等待原生队列恢复，不能假设取消协程等于取消系统操作。
+Android/iOS 原生操作一旦发起，不一定能被协程真正撤销。操作失败、超时或调用协程取消只结束本次
+公共调用，不会主动断开已经交付给调用方的连接。迟到的底层回调可能被后续同类操作观察到，因此
+底层操作成功不能作为端到端业务成功的依据；业务协议必须通过消息序号、设备应答和重传确认真实
+结果。库不自动重发写入，避免产生重复业务副作用。
+
+连接生命周期是公共契约：库只会在调用方显式调用 `disconnect()` 时主动终止已建立连接。Android
+收到 `STATE_DISCONNECTED`、iOS 收到 `didDisconnectPeripheral` 或 Web 收到
+`gattserverdisconnected`，属于连接已经断开的明确证据；库此时被动更新状态，并关闭本地句柄、
+取消协程或移除监听器。普通操作失败、超时和调用取消都不构成断开证据。`connect()` 尚未成功返回
+时发生失败、超时或取消，Runner 会取消这次未交付的连接尝试，避免泄漏调用方无法管理的原生句柄。
 
 ### 4.3 回调订阅顺序
 
@@ -135,6 +143,11 @@ Runner 使用 `async(start = CoroutineStart.UNDISPATCHED)` 先安装 Flow 订阅
 
 Android 首次连接结果使用每次 `connectGatt()` 独立的 `CompletableDeferred`，而不是共享事件流，
 确保 callback 早于 Connection collector 建立时仍能完成连接。
+
+连接成功到 Connection Adapter 交付之间也必须保留断开证据。Android 每个
+`BleGattCallbackInstant` 维护本次 GATT 的可重放连接状态，Connection 在返回调用方前订阅并复核；
+iOS 在建立中心事件订阅后再次检查 `CBPeripheral.state`。因此即使设备在连接成功回调后立即断开，
+`connect()` 也不会向调用方交付一个仍显示已连接的失效实例。
 
 ## 5. 控制事件与通知数据分流
 
@@ -154,7 +167,11 @@ Adapter 再按原生连接对象或设备地址过滤通知，并转换为公共
 ### 6.1 Android
 
 - 扫描使用 `SCAN_MODE_LOW_LATENCY`，提高发现速度但增加功耗；取消 Flow 会停止扫描；
-- API 30 及以下会检查定位权限和定位服务，较新系统请求 Bluetooth 运行时权限；
+- AAR Manifest 不声明蓝牙或定位权限，由调用方应用按业务用途和系统版本在自身 Manifest 中声明；
+  库不弹运行时权限界面，只在操作前检查权限。API 30 及以下还会检查定位服务，较新系统取得
+  Bluetooth 运行时权限后才能访问受保护的 Adapter 状态和扫描器；
+- 权限检查、定位状态和蓝牙开启 Intent 集中在内部 `AndroidBleEnvironment` Module。`enable()`
+  使用 Application Context 发起系统界面并立即返回，最终结果由蓝牙状态广播更新 `isEnabledFlow`；
 - 通知通过 `setCharacteristicNotification` 和 CCCD descriptor write 两步完成；
 - 同时支持 `NOTIFY` 与 `INDICATE`，优先使用 Notification；
 - 写入优先选择有响应 WRITE，否则选择 WRITE_NO_RESPONSE；
@@ -164,6 +181,8 @@ Adapter 再按原生连接对象或设备地址过滤通知，并转换为公共
 ### 6.2 iOS
 
 - 地址是 `CBPeripheral.identifier.UUIDString`，不是 MAC；
+- CoreBluetooth 同一 central manager 只允许一个活动扫描 Flow；第二个并发收集者会收到明确异常，
+  不会停止或篡改已有扫描；
 - `scanByAddress()` 使用 `retrievePeripheralsWithIdentifiers`，只查询系统已知 peripheral；
 - 所有 peripheral 共用 delegate，事件通过地址和特征身份关联；
 - Notification 与 Indication 都由 `setNotifyValue` 统一开启，并等待状态回调确认；
@@ -182,6 +201,8 @@ Adapter 再按原生连接对象或设备地址过滤通知，并转换为公共
 - GATT 操作直接等待浏览器 Promise，不经过 `OperationManager`，因此没有库级超时或同设备串行；
 - 每个“服务 UUID + 特征 UUID”身份只保留一个 DOM listener，重复启用会替换旧 listener，
   断开时统一移除；
+- Kotlin/JS 把浏览器原生 service/characteristic 数组作为 JS Array 遍历，写入前显式构造
+  `Uint8Array`，避免把 Kotlin Collection 或普通 JS Array 传给 Web Bluetooth；
 - 读取 `DataView` 时保留 `byteOffset` 与 `byteLength`，避免切片视图读取到缓冲区其他数据；
 - 浏览器不开放 MTU 协商，固定返回 payload 长度 20。
 
@@ -214,10 +235,20 @@ Adapter 再按原生连接对象或设备地址过滤通知，并转换为公共
 - 服务和特征保存快照，避免调用方反复遍历原生对象；
 - 断开时取消 Connection scope 并移除 Web listener，避免持续分发和资源泄漏。
 
-安全与隐私约束：
+日志与安全约束：
 
-- 日志只记录 payload 字节数，不记录完整 BLE 数据；
-- 调试日志仍可能包含设备名称、地址和 UUID，生产环境应降低日志级别并按隐私要求处理；
+- 关键生命周期日志统一使用可检索的事件名和 `key=value` 字段，覆盖扫描、连接、服务发现、MTU、
+  通知配置、写入、断开、异常以及移动端操作排队、超时、取消和恢复；
+- 移动端操作使用内部 `operationId` 串联排队、Runner 执行和最终结果，同一日志同时记录完整设备地址、
+  操作类型、服务/特征 UUID、结果和耗时；
+- 服务发现成功日志输出完整的服务 UUID、特征 UUID 和特征属性集合，便于与设备协议定义直接核对；
+- BLE 写入和通知接收使用 `[ble.tx]`、`[ble.rx]` DEBUG 日志输出完整 payload，格式为大写、连续
+  的 HEX 字节；通讯行采用 `设备名@地址 服务UUID/特征UUID 字节数 HEX` 的固定位置格式，末尾仅按需
+  附加 `op=`、`type=` 等短字段；平台字段不重复输出；
+- 为便于现场问题反查，日志不脱敏设备名称、地址或 UUID。设备标识和完整通讯 payload 都可能包含
+  敏感信息，生产环境必须按业务隐私要求限制日志等级、访问权限、保存周期和外发范围；
+- Android 12+ 的原生设备名称读取受 `BLUETOOTH_CONNECT` 权限保护；回调日志使用容错读取，权限在
+  连接期间被撤销时记录 unavailable 原因，但仍继续转发原生状态和操作结果，避免日志反向破坏连接状态机；
 - 本库不实现应用层加密、设备身份认证或配对策略，链路安全依赖操作系统与业务协议；
 - Web 设备访问受 HTTPS/localhost、用户手势和 Origin 授权约束；
 - 原生逃生口可能绕过状态机，只应在受控代码中使用。
@@ -230,12 +261,15 @@ common 测试当前验证：
 - 不同地址操作并发；
 - 等待同地址锁的时间计入操作超时；
 - 调用取消会取消待处理请求；
+- 原生操作取消后，同地址请求会等待平台恢复信号；
 - 不同服务下相同 characteristic UUID 的通知状态互不覆盖。
+
+JS 测试额外验证浏览器原生数组的服务发现适配，以及写入参数确实是 `ArrayBufferView`。
 
 继续扩展时应优先通过公共 Interface 验证可观察行为，避免测试依赖内部字段。平台 BLE 框架难以在
 普通单元测试中替代，当前仍缺少以下自动化覆盖：
 
-- 操作超时后的迟到回调隔离；
+- Android/iOS 操作超时后保持连接及迟到回调行为；
 - Android/iOS 快速同步回调时序；
 - Notification/Indication 开关与断开清理；
 - 通知状态在多服务包含相同 characteristic UUID 时的更多平台集成场景；
@@ -274,5 +308,5 @@ common 测试当前验证：
 - 等待原生回调的订阅先于原生调用建立；
 - 控制事件和通知 payload 不共用缓冲；
 - 断开操作幂等，并释放原生对象、协程或 DOM listener；
-- 日志不输出完整 BLE payload；
+- DEBUG 日志完整输出 BLE 通讯 payload 的 HEX，并携带可反查的设备和特征信息；
 - 原生逃生口必须显式 Opt-in，并在文档中说明绕过的保护。

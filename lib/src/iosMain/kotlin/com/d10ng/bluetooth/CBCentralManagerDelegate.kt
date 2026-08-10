@@ -21,7 +21,7 @@ internal val CBCentralManagerDelegate: CBCentralManagerDelegateProtocol = object
         // 状态更新
         val state = CBManagerStateEnum.from(central.state)
         BleCentralEvents.stateFlow.value = state
-        log.d { "[CBCentralManagerDelegate.centralManagerDidUpdateState] state: ${state.name}" }
+        log.i { "[bluetooth.state_changed] state=${state.name}" }
     }
 
     override fun centralManager(
@@ -32,7 +32,7 @@ internal val CBCentralManagerDelegate: CBCentralManagerDelegateProtocol = object
     ) {
         // 扫描结果
         val name = advertisementData["kCBAdvDataLocalName"]?.toString()?: didDiscoverPeripheral.name()
-        log.d { "[CBCentralManagerDelegate.didDiscoverPeripheral] address: ${didDiscoverPeripheral.address}, name: $name, RSSI: ${RSSI.intValue}" }
+        log.d { "[scan.result] type=service_filter address=${didDiscoverPeripheral.address} name=$name rssi=${RSSI.intValue}" }
         BleCentralEvents.eventFlow.tryEmit(CBCentralManagerEvent.DidDiscoverPeripheral(didDiscoverPeripheral, name, RSSI.intValue))
     }
 
@@ -41,7 +41,7 @@ internal val CBCentralManagerDelegate: CBCentralManagerDelegateProtocol = object
         didConnectPeripheral: CBPeripheral
     ) {
         // 连接成功
-        log.d { "[CBCentralManagerDelegate.didConnectPeripheral] address: ${didConnectPeripheral.address}, name: ${didConnectPeripheral.name()}" }
+        log.d { "[connect.callback] address=${didConnectPeripheral.address} name=${didConnectPeripheral.name()} result=success" }
         BleCentralEvents.eventFlow.tryEmit(CBCentralManagerEvent.DidConnectResult(didConnectPeripheral, true))
     }
 
@@ -51,7 +51,8 @@ internal val CBCentralManagerDelegate: CBCentralManagerDelegateProtocol = object
         error: NSError?
     ) {
         // 连接失败
-        log.w { "[CBCentralManagerDelegate.didFailToConnectPeripheral] address: ${didFailToConnectPeripheral.address}, name: ${didFailToConnectPeripheral.name()}, error: $error" }
+        log.w { "[connect.callback] address=${didFailToConnectPeripheral.address} name=${didFailToConnectPeripheral.name()} result=failed error=$error" }
+        IosOperationRunner.onPeripheralDisconnected(didFailToConnectPeripheral)
         BleCentralEvents.eventFlow.tryEmit(CBCentralManagerEvent.DidConnectResult(didFailToConnectPeripheral, false))
     }
 
@@ -63,7 +64,8 @@ internal val CBCentralManagerDelegate: CBCentralManagerDelegateProtocol = object
         error: NSError?
     ) {
         // 断开连接
-        log.i { "[CBCentralManagerDelegate.didDisconnectPeripheral] address: ${didDisconnectPeripheral.address}, name: ${didDisconnectPeripheral.name()}, timestamp: $timestamp, isReconnecting: $isReconnecting, error: $error" }
+        log.i { "[disconnect.callback] address=${didDisconnectPeripheral.address} name=${didDisconnectPeripheral.name()} timestamp=$timestamp isReconnecting=$isReconnecting error=$error" }
+        IosOperationRunner.onPeripheralDisconnected(didDisconnectPeripheral)
         BleCentralEvents.eventFlow.tryEmit(CBCentralManagerEvent.DidDisconnect(didDisconnectPeripheral, timestamp, isReconnecting, error))
     }
 }

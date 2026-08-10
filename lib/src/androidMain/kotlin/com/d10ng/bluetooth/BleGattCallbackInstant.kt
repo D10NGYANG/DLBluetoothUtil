@@ -9,6 +9,9 @@ import com.d10ng.bluetooth.constant.BleGattEvent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 
 /**
@@ -20,8 +23,15 @@ import kotlinx.coroutines.flow.first
  */
 @SuppressLint("MissingPermission")
 internal class BleGattCallbackInstant(
-    private val connectionResult: CompletableDeferred<BleGattEvent.OnConnectionStateChange>
+    private val connectionResult: CompletableDeferred<BleGattEvent.OnConnectionStateChange>,
+    private val deviceAddress: String,
+    private val deviceName: () -> String?,
 ) : BluetoothGattCallback() {
+
+    private val mutableConnectionState =
+        MutableStateFlow<BleGattEvent.OnConnectionStateChange?>(null)
+    val connectionState: StateFlow<BleGattEvent.OnConnectionStateChange?> =
+        mutableConnectionState.asStateFlow()
 
     companion object {
         val eventFlow = MutableSharedFlow<BleGattEvent>(
@@ -36,24 +46,37 @@ internal class BleGattCallbackInstant(
         private const val EVENT_BUFFER_CAPACITY = 64
 
         suspend inline fun <reified T : BleGattEvent> first(
-            address: String,
+            gatt: BluetoothGatt,
             crossinline predicate: (T) -> Boolean = { true }
         ): T = eventFlow.first {
-            it is T && it.gatt.device.address.contentEquals(address, true) && predicate(it)
+            it is T && it.gatt === gatt && predicate(it)
         } as T
     }
 
     override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
-        gatt ?: return
-        log.d { "[BluetoothGattCallback.onConnectionStateChange] device: ${gatt.device.name}, status: $status, newState: $newState" }
+        if (gatt == null) {
+            log.w { "[gatt.connection_state] error=gatt_is_null status=$status newState=$newState" }
+            return
+        }
         val event = BleGattEvent.OnConnectionStateChange(gatt, status, newState)
+        mutableConnectionState.value = event
         connectionResult.complete(event)
         eventFlow.tryEmit(event)
+        log.d {
+            "[gatt.connection_state] address=$deviceAddress " +
+                    "name=${deviceName()} status=$status newState=$newState"
+        }
     }
 
     override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
-        gatt ?: return
-        log.d { "[BluetoothGattCallback.onServicesDiscovered] device: ${gatt.device.name}, status: $status" }
+        if (gatt == null) {
+            log.w { "[gatt.services_discovered] error=gatt_is_null status=$status" }
+            return
+        }
+        log.d {
+            "[gatt.services_discovered] address=$deviceAddress " +
+                    "name=${deviceName()} status=$status services=${gatt.services.size}"
+        }
         eventFlow.tryEmit(BleGattEvent.OnServicesDiscovered(gatt, status))
     }
 
@@ -62,9 +85,14 @@ internal class BleGattCallbackInstant(
         characteristic: BluetoothGattCharacteristic?,
         status: Int
     ) {
-        gatt ?: return
-        characteristic ?: return
-        log.d { "[BluetoothGattCallback.onCharacteristicWrite] device: ${gatt.device.name}, characteristic: ${characteristic.uuid}, status: $status" }
+        if (gatt == null || characteristic == null) {
+            log.w { "[gatt.characteristic_write] error=null_callback_argument status=$status" }
+            return
+        }
+        log.d {
+            "[gatt.characteristic_write] address=$deviceAddress name=${deviceName()} " +
+                    "serviceUuid=${characteristic.service.uuid} characteristicUuid=${characteristic.uuid} status=$status"
+        }
         eventFlow.tryEmit(BleGattEvent.OnCharacteristicWrite(gatt, characteristic, status))
     }
 
@@ -73,9 +101,15 @@ internal class BleGattCallbackInstant(
         descriptor: BluetoothGattDescriptor?,
         status: Int
     ) {
-        gatt ?: return
-        descriptor ?: return
-        log.d { "[BluetoothGattCallback.onDescriptorWrite] device: ${gatt.device.name}, descriptor: ${descriptor.uuid}, status: $status" }
+        if (gatt == null || descriptor == null) {
+            log.w { "[gatt.descriptor_write] error=null_callback_argument status=$status" }
+            return
+        }
+        log.d {
+            "[gatt.descriptor_write] address=$deviceAddress name=${deviceName()} " +
+                    "serviceUuid=${descriptor.characteristic.service.uuid} " +
+                    "characteristicUuid=${descriptor.characteristic.uuid} descriptorUuid=${descriptor.uuid} status=$status"
+        }
         eventFlow.tryEmit(BleGattEvent.OnDescriptorWrite(gatt, descriptor, status))
     }
 
@@ -84,7 +118,14 @@ internal class BleGattCallbackInstant(
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray
     ) {
-        log.d { "[BluetoothGattCallback.onCharacteristicChanged] characteristic: ${characteristic.uuid}, bytes: ${value.size}" }
+        logBleCommunication(
+            direction = "rx",
+            address = deviceAddress,
+            deviceName = deviceName,
+            serviceUuid = characteristic.service.uuid.toString(),
+            characteristicUuid = characteristic.uuid.toString(),
+            value = value
+        )
         notificationFlow.tryEmit(BleGattEvent.OnCharacteristicChanged(gatt, characteristic, value))
     }
 
@@ -94,16 +135,38 @@ internal class BleGattCallbackInstant(
         gatt: BluetoothGatt?,
         characteristic: BluetoothGattCharacteristic?
     ) {
-        gatt ?: return
-        characteristic ?: return
-        val value = characteristic.value ?: return
-        log.d { "[BluetoothGattCallback.onCharacteristicChanged] characteristic: ${characteristic.uuid}, bytes: ${value.size}" }
+        if (gatt == null || characteristic == null) {
+            log.w { "[ble.rx] error=null_callback_argument" }
+            return
+        }
+        val value = characteristic.value
+        if (value == null) {
+            log.w {
+                "[ble.rx] address=$deviceAddress " +
+                        "serviceUuid=${characteristic.service.uuid} characteristicUuid=${characteristic.uuid} error=value_is_null"
+            }
+            return
+        }
+        logBleCommunication(
+            direction = "rx",
+            address = deviceAddress,
+            deviceName = deviceName,
+            serviceUuid = characteristic.service.uuid.toString(),
+            characteristicUuid = characteristic.uuid.toString(),
+            value = value
+        )
         notificationFlow.tryEmit(BleGattEvent.OnCharacteristicChanged(gatt, characteristic, value))
     }
 
     override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
-        gatt ?: return
-        log.d { "[BluetoothGattCallback.onMtuChanged] device: ${gatt.device.name}, mtu: $mtu, status: $status" }
+        if (gatt == null) {
+            log.w { "[gatt.mtu_changed] error=gatt_is_null mtu=$mtu status=$status" }
+            return
+        }
+        log.d {
+            "[gatt.mtu_changed] address=$deviceAddress " +
+                    "name=${deviceName()} mtu=$mtu status=$status"
+        }
         eventFlow.tryEmit(BleGattEvent.OnMtuChanged(gatt, mtu, status))
     }
 }

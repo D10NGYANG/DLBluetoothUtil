@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import platform.CoreBluetooth.CBCharacteristic
 import platform.CoreBluetooth.CBPeripheral
+import platform.CoreBluetooth.CBPeripheralStateDisconnected
 import kotlin.uuid.ExperimentalUuidApi
 
 /**
@@ -43,7 +44,10 @@ internal class IosBleConnection(
                 BleCentralEvents.eventFlow
                     .filter { event -> event is CBCentralManagerEvent.DidDisconnect }
                     .filter { event -> event.peripheral.address.contentEquals(peripheral.address, true) }
-                    .collect { handleDisconnected() }
+                    .collect { event ->
+                        val disconnected = event as CBCentralManagerEvent.DidDisconnect
+                        handleDisconnected("remote_or_native_callback", disconnected.error?.toString())
+                    }
             }
 
             // 监听特征值通知，转发为通用通知数据
@@ -54,6 +58,14 @@ internal class IosBleConnection(
                         val ch = event.characteristic
                         val data = event.data
                         val characteristic = runCatching { ch.toBleGattCharacteristic() }
+                            .onFailure { error ->
+                                log.e {
+                                    "[notification.mapping_failed] address=${device.address} " +
+                                            "serviceUuid=${ch.serviceUUIDString} characteristicUuid=${ch.UUIDString} " +
+                                            "bytes=${data.size} services=${mutableServicesFlow.value.size} " +
+                                            "error=${error.stackTraceToString()}"
+                                }
+                            }
                             .getOrNull() ?: return@collect
                         mutableNotifyDataFlow.tryEmit(BleGattNotifyData(characteristic, data))
                     }
@@ -64,7 +76,13 @@ internal class IosBleConnection(
     }
 
     /** 等待内部事件订阅建立；仅由 [IosBleManager] 在返回连接前调用。 */
-    suspend fun awaitReady() = ready.await()
+    suspend fun awaitReady() {
+        ready.await()
+        if (peripheral.state == CBPeripheralStateDisconnected) {
+            handleDisconnected("native_state_before_delivery", null)
+            error("Bluetooth disconnected before connection delivery")
+        }
+    }
 
     @OptIn(ExperimentalUuidApi::class)
     private fun CBCharacteristic.toBleGattCharacteristic(): BleGattCharacteristic {
@@ -75,42 +93,77 @@ internal class IosBleConnection(
     }
 
     override suspend fun discoverServices(): List<BleGattService> {
+        checkConnected()
         val result = OperationManager.execute<OperationResult.DiscoverServices>(OperationType.DiscoverServices(device.address, peripheral))
-        if (result == null || result.services.isEmpty()) throw Exception("discover services failed")
+            ?: operationTimedOut("discover services")
+        if (result.services.isEmpty()) throw Exception("discover services failed")
         mutableServicesFlow.value = result.services
         return result.services
     }
 
     override suspend fun requestMaxMtu(): Int {
+        checkConnected()
         val result = OperationManager.execute<OperationResult.MtuChanged>(OperationType.MtuChanged(device.address, GATT_MAX_MTU_SIZE, peripheral))
-        if (result == null || !result.result) {
-            log.w { "request mtu failed" }
-        } else {
-            log.i { "set mtu to ${result.mtu} success" }
+        if (result == null) {
+            log.w { "[request_mtu.fallback] address=${device.address} reason=timeout payloadLength=${GATT_MIN_MTU_SIZE - 3}" }
+            return GATT_MIN_MTU_SIZE - 3
         }
-        return if (result?.result == true) result.mtu else GATT_MIN_MTU_SIZE - 3
+        if (!result.result) {
+            log.w { "[request_mtu.fallback] address=${device.address} reason=native_failure payloadLength=${GATT_MIN_MTU_SIZE - 3}" }
+        } else {
+            log.i { "[request_mtu.ready] address=${device.address} payloadLength=${result.mtu}" }
+        }
+        return if (result.result) result.mtu else GATT_MIN_MTU_SIZE - 3
     }
 
     override suspend fun write(characteristic: BleGattCharacteristic, value: ByteArray) {
+        checkConnected()
         val result = OperationManager.execute<OperationResult.Write>(OperationType.Write(device.address, characteristic, value, peripheral))
-        if (result == null || !result.result) throw Exception("write failed")
+            ?: throw Exception("write timed out")
+        if (!result.result) throw Exception("write failed")
     }
 
     @OptIn(ExperimentalUuidApi::class)
     override suspend fun notify(characteristic: BleGattCharacteristic, enable: Boolean) {
+        checkConnected()
         val result = OperationManager.execute<OperationResult.Notify>(OperationType.Notify(device.address, characteristic, enable, peripheral))
-        if (result == null || !result.result) throw Exception("notify failed")
+            ?: operationTimedOut("notify")
+        if (!result.result) throw Exception("notify failed")
         updateNotifyStatus(characteristic, enable)
     }
 
-    override fun disconnect() {
-        if (!mutableIsConnectedFlow.value) return
-        runCatching { IosOperationRunner.centralManager.cancelPeripheralConnection(peripheral) }
-        handleDisconnected()
+    private fun checkConnected() {
+        if (!mutableIsConnectedFlow.value) {
+            log.w { "[connection.operation_rejected] address=${device.address} reason=disconnected" }
+            error("Bluetooth connection is disconnected")
+        }
     }
 
-    private fun handleDisconnected() {
+    private fun operationTimedOut(operation: String): Nothing {
+        throw Exception("$operation timed out")
+    }
+
+    override fun disconnect() {
+        if (!mutableIsConnectedFlow.value) {
+            log.d { "[disconnect.ignored] address=${device.address} reason=already_disconnected" }
+            return
+        }
+        log.i { "[disconnect.requested] address=${device.address} source=caller_request" }
+        runCatching { IosOperationRunner.centralManager.cancelPeripheralConnection(peripheral) }
+            .onFailure { error ->
+                log.e {
+                    "[disconnect.native_failed] address=${device.address} " +
+                            "source=caller_request error=${error.stackTraceToString()}"
+                }
+            }
+        handleDisconnected("caller_request", null)
+    }
+
+    private fun handleDisconnected(source: String, error: String?) {
         if (!mutableIsConnectedFlow.value) return
+        log.i {
+            "[disconnect.confirmed] address=${device.address} source=$source error=$error"
+        }
         mutableIsConnectedFlow.value = false
         mutableServicesFlow.value = emptyList()
         mutableNotifyStatusFlow.value = emptyList()

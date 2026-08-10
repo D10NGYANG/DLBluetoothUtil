@@ -102,7 +102,9 @@ sealed class Screen {
 
 @Composable
 @Preview
-fun App() {
+fun App(
+    requestBlePermissions: suspend () -> Boolean = { true },
+) {
     MaterialTheme {
         var screen by remember { mutableStateOf<Screen>(Screen.DeviceList) }
         val scope = rememberCoroutineScope()
@@ -113,6 +115,7 @@ fun App() {
 
         when (val s = screen) {
             is Screen.DeviceList -> DeviceListScreen(
+                requestBlePermissions = requestBlePermissions,
                 onConnected = { conn -> screen = Screen.Chat(conn) }
             )
             is Screen.Chat -> ChatScreen(
@@ -129,6 +132,7 @@ fun App() {
 
 @Composable
 private fun DeviceListScreen(
+    requestBlePermissions: suspend () -> Boolean,
     onConnected: (ABleConnection) -> Unit
 ) {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -205,20 +209,26 @@ private fun DeviceListScreen(
                         // 停止扫描
                         scanning = false
                     } else {
-                        // 开始扫描并清空旧列表
-                        devices.clear()
-                        errorMsg = null
-                        scanning = true
+                        scope.launch {
+                            if (requestBlePermissions()) {
+                                devices.clear()
+                                errorMsg = null
+                                scanning = true
+                            } else {
+                                errorMsg = "蓝牙权限未授予"
+                            }
+                        }
                     }
                 },
                 onBluetoothClick = {
                     scope.launch {
                         if (!isEnabled) {
                             runCatching {
+                                if (!requestBlePermissions()) error("蓝牙权限未授予")
                                 if (bleManager.isSupportEnable()) {
                                     bleManager.enable()
                                 }
-                            }
+                            }.onFailure { error -> errorMsg = error.message }
                         } else {
                             errorMsg = "蓝牙已开启"
                         }
@@ -264,10 +274,11 @@ private fun DeviceListScreen(
                         device = dev,
                         connecting = dev.address == connectProgress?.address,
                         onClick = {
-                            connectProgress = dev
-                            errorMsg = null
                             scope.launch {
+                                connectProgress = dev
+                                errorMsg = null
                                 runCatching {
+                                    if (!requestBlePermissions()) error("蓝牙权限未授予")
                                     val conn = bleManager.connect(dev)
                                     onConnected(conn)
                                 }.onFailure { e ->

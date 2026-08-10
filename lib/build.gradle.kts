@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.github.D10NGYANG"
-version = "0.9.0"
+version = "1.0.0"
 
 kotlin {
     androidTarget {
@@ -40,14 +40,10 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
         androidMain.dependencies {
-            // Android
-            implementation(libs.androidx.activity.ktx)
             // 协程 Android
             implementation(libs.kotlinx.coroutines.android)
             // startup
             implementation(libs.androidx.startup.runtime)
-            // APP通用工具
-            implementation(libs.dl.app)
         }
     }
 }

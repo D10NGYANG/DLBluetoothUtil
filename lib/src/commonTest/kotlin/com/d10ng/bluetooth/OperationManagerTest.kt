@@ -64,6 +64,54 @@ class OperationManagerTest {
         operation.cancelAndJoin()
 
         assertTrue(request.result.isCancelled)
+        OperationManager.markRecovered("address")
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun cancelledNativeOperationBlocksSameAddressUntilRecovery() = runTest {
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            OperationManager.execute<OperationResult.Connect>(OperationType.Connect("recovering-address", "first"))
+        }
+        val firstRequest = OperationManager.queueChannel.receive()
+        first.cancelAndJoin()
+
+        val next = async(start = CoroutineStart.UNDISPATCHED) {
+            OperationManager.execute<OperationResult.Connect>(OperationType.Connect("recovering-address", "next"))
+        }
+        runCurrent()
+        assertFalse(OperationManager.queueChannel.tryReceive().isSuccess)
+
+        OperationManager.markRecovered("recovering-address")
+        val nextRequest = OperationManager.queueChannel.receive()
+        nextRequest.result.complete(OperationResult.Connect("recovering-address", true, "result"))
+
+        assertTrue(firstRequest.result.isCancelled)
+        assertEquals("result", next.await()?.obj)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun operationWaitingForAddressLockRechecksRecoveryAfterPreviousCancellation() = runTest {
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            OperationManager.execute<OperationResult.Connect>(OperationType.Connect("recheck-address", "first"))
+        }
+        val firstRequest = OperationManager.queueChannel.receive()
+        val waiting = async(start = CoroutineStart.UNDISPATCHED) {
+            OperationManager.execute<OperationResult.Connect>(OperationType.Connect("recheck-address", "waiting"))
+        }
+
+        first.cancelAndJoin()
+        runCurrent()
+
+        assertTrue(firstRequest.result.isCancelled)
+        assertFalse(OperationManager.queueChannel.tryReceive().isSuccess)
+
+        OperationManager.markRecovered("recheck-address")
+        val waitingRequest = OperationManager.queueChannel.receive()
+        waitingRequest.result.complete(OperationResult.Connect("recheck-address", true, "result"))
+
+        assertEquals("result", waiting.await()?.obj)
     }
 
     @Test
@@ -86,5 +134,6 @@ class OperationManagerTest {
         assertFalse(OperationManager.queueChannel.tryReceive().isSuccess)
         first.cancelAndJoin()
         assertTrue(firstRequest.result.isCancelled)
+        OperationManager.markRecovered("busy-address")
     }
 }

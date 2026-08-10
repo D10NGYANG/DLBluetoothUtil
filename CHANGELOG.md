@@ -1,7 +1,33 @@
 # 更新日志
 
-本文记录 DLBluetoothUtil 的重要变更与升级适配方式。版本号沿用当前项目的 `0.x` 约定；包含公共
-API 破坏性调整的版本提升次版本号。
+本文记录 DLBluetoothUtil 的重要变更与升级适配方式。从 `1.0.0` 起按语义化版本管理：公共 API
+不兼容调整提升主版本，向后兼容能力提升次版本，问题修复提升补丁版本。
+
+## [1.0.0] - 2026-08-10
+
+首个稳定版本。公共 BLE API 相比 `0.9.0` 保持不变，主要调整运行时可靠性、Android 集成职责、
+完整诊断日志和构建依赖。
+
+### 重点变化
+
+- 普通服务发现、MTU、通知配置或写入失败、超时及调用协程取消，只结束本次操作，不再由库主动
+  断开已经交付的连接。仅调用方显式 `disconnect()`，或 Android/iOS/Web 提供明确断开证据时清理连接。
+- Android AAR 不再声明蓝牙或定位权限，也不再依赖 `DLAppUtil` 申请权限。应用必须在自己的
+  Manifest 中声明权限，并在调用 `enable()`、`scan()`、`scanByAddress()`、`connect()` 前完成授权。
+- Android `enable()` 使用 Application Context 发起系统蓝牙开启界面并返回；是否真正开启以
+  `isEnabledFlow` 为准。
+- Android/iOS 原生操作按设备地址串行，不同设备可以并发；修复快速连接/断开回调丢失、取消清理、
+  iOS 写入与通知时序、Android Notification/Indication CCCD 等问题。
+- 服务发现成功日志输出完整服务、特征和属性；BLE 收发 DEBUG 日志输出完整设备信息以及大写、连续、
+  无空格 HEX payload，不进行设备数据脱敏。
+- JS/Wasm 修复原生数组转换、`Uint8Array` 写入参数、`DataView` 切片和 DOM listener 清理。
+- 工具链升级到 Gradle 8.14.5、AGP 8.13.2、Kotlin 2.3.21、Coroutines 1.11.0；demo 升级到
+  Compose Multiplatform 1.11.1、Compose Hot Reload 1.2.0、AndroidX Activity 1.13.0。
+
+### 升级迁移
+
+完整步骤、Manifest 示例、行为检查清单和注意事项见
+[从 0.9.0 升级到 1.0.0](docs/MIGRATION_1.0.0.md)。
 
 ## [0.9.0] - 2026-08-07
 

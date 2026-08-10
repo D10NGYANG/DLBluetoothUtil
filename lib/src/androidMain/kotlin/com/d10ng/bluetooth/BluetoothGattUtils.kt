@@ -1,7 +1,6 @@
 package com.d10ng.bluetooth
 
 import android.annotation.SuppressLint
-import android.annotation.TargetApi
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
@@ -35,7 +34,6 @@ fun BluetoothGattCharacteristic.executeWrite(
     }
 }
 
-@TargetApi(Build.VERSION_CODES.S)
 @SuppressLint("MissingPermission")
 @Suppress("DEPRECATION")
 private fun BluetoothGattCharacteristic.legacyCharacteristicWrite(
@@ -62,7 +60,6 @@ fun BluetoothGattDescriptor.executeWrite(
     }
 }
 
-@TargetApi(Build.VERSION_CODES.S)
 @SuppressLint("MissingPermission")
 @Suppress("DEPRECATION")
 private fun BluetoothGattDescriptor.legacyDescriptorWrite(

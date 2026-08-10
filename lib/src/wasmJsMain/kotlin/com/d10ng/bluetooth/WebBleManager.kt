@@ -31,8 +31,16 @@ object WebBleManager: ABleManager() {
     init {
         scope.launch {
             if (isSupported()) {
-                val available = navigator.bluetooth!!.getAvailability().await<JsBoolean>()
-                mutableIsEnabledFlow.value = available.toBoolean()
+                runCatching {
+                    navigator.bluetooth!!.getAvailability().await<JsBoolean>()
+                }.onSuccess { available ->
+                    mutableIsEnabledFlow.value = available.toBoolean()
+                    log.i { "[bluetooth.availability] available=${available.toBoolean()}" }
+                }.onFailure { error ->
+                    log.e { "[bluetooth.availability_failed] error=${error.stackTraceToString()}" }
+                }
+            } else {
+                log.w { "[bluetooth.unsupported]" }
             }
         }
     }
@@ -59,10 +67,14 @@ object WebBleManager: ABleManager() {
 
     override fun scan(serviceUuids: List<String>): Flow<BleDevice> = callbackFlow {
         if (!isSupported()) {
+            log.w { "[scan.rejected] type=device_picker reason=unsupported" }
             close()
             return@callbackFlow
         }
         val job = launch {
+            log.i {
+                "[scan.start] type=device_picker serviceUuids=$serviceUuids optionalServices=$optionalServices"
+            }
             val options = if (serviceUuids.isEmpty()) {
                 createJsBluetoothRequestOptions(true, optionalServices.map { it.toJsString() }.toJsArray())
             } else {
@@ -74,44 +86,84 @@ object WebBleManager: ABleManager() {
             }
             val device = runCatching {
                 navigator.bluetooth!!.requestDevice(options).await<BluetoothDevice>()
+            }.onFailure { error ->
+                log.w {
+                    "[scan.device_picker_closed] serviceUuids=$serviceUuids " +
+                            "error=${error.stackTraceToString()}"
+                }
             }.getOrNull()
 
             if (device != null) {
-                trySend(BleDevice(
+                val foundDevice = BleDevice(
                     name = device.name ?: "Unknown",
                     address = device.id,
                     rssi = 0,
                     nativeHandle = device
-                ))
+                )
+                log.d {
+                    "[scan.result] type=device_picker address=${foundDevice.address} name=${foundDevice.name}"
+                }
+                val delivery = trySend(foundDevice)
+                if (delivery.isFailure && !delivery.isClosed) {
+                    log.w {
+                        "[scan.result_dropped] type=device_picker " +
+                                "address=${foundDevice.address} name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
+                    }
+                }
             }
+            log.i { "[scan.stop] type=device_picker resultFound=${device != null}" }
             close()
         }
-        awaitClose { job.cancel() }
+        awaitClose {
+            if (job.isActive) log.d { "[scan.cancelled] type=device_picker" }
+            job.cancel()
+        }
     }
 
     override fun scanByAddress(addresses: List<String>): Flow<BleDevice> = callbackFlow {
         if (!isSupported()) {
+            log.w { "[scan.rejected] type=known_addresses addresses=$addresses reason=unsupported" }
             close()
             return@callbackFlow
         }
         val job = launch {
+            log.i { "[scan.start] type=known_addresses addresses=$addresses" }
             // 从此 Origin 下曾经授权过的设备中按 ID 过滤
             val allDevices = runCatching {
                 navigator.bluetooth!!.getDevices().await<JsArray<BluetoothDevice>>()
+            }.onFailure { error ->
+                log.e {
+                    "[scan.failed] type=known_addresses addresses=$addresses " +
+                            "error=${error.stackTraceToString()}"
+                }
             }.getOrNull()
+            var resultCount = 0
             if (allDevices != null) {
                 for (i in 0 until allDevices.length) {
                     val device = allDevices[i] ?: continue
                     if (addresses.contains(device.id)) {
-                        trySend(BleDevice(
+                        val foundDevice = BleDevice(
                             name = device.name ?: "Unknown",
                             address = device.id,
                             rssi = 0,
                             nativeHandle = device
-                        ))
+                        )
+                        resultCount++
+                        log.d {
+                            "[scan.result] type=known_addresses " +
+                                    "address=${foundDevice.address} name=${foundDevice.name}"
+                        }
+                        val delivery = trySend(foundDevice)
+                        if (delivery.isFailure && !delivery.isClosed) {
+                            log.w {
+                                "[scan.result_dropped] type=known_addresses " +
+                                        "address=${foundDevice.address} name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
+                            }
+                        }
                     }
                 }
             }
+            log.i { "[scan.stop] type=known_addresses addresses=$addresses results=$resultCount" }
             close()
         }
         awaitClose { job.cancel() }
@@ -119,8 +171,18 @@ object WebBleManager: ABleManager() {
 
     @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
     override suspend fun connect(device: BleDevice): ABleConnection {
-        val d = device.nativeHandle as BluetoothDevice
-        val gatt = d.gatt.connect().await<BluetoothRemoteGATTServer>()
-        return WebBleConnection(device, gatt)
+        log.i { "[connect.requested] address=${device.address} name=${device.name}" }
+        return try {
+            val d = device.nativeHandle as BluetoothDevice
+            val gatt = d.gatt.connect().await<BluetoothRemoteGATTServer>()
+            log.i { "[connect.ready] address=${device.address} name=${device.name}" }
+            WebBleConnection(device, gatt)
+        } catch (error: Throwable) {
+            log.e {
+                "[connect.failed] address=${device.address} name=${device.name} " +
+                        "error=${error.stackTraceToString()}"
+            }
+            throw error
+        }
     }
 }
