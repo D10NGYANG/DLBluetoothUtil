@@ -89,8 +89,8 @@ object IosBleManager: ABleManager() {
                         val delivery = trySend(device)
                         if (delivery.isFailure && !delivery.isClosed) {
                             log.w {
-                                "[scan.result_dropped] type=service_filter " +
-                                        "address=${device.address} name=${device.name} error=${delivery.exceptionOrNull()}"
+                                "[scan.result_dropped] address=${device.address} " +
+                                        "name=${device.name} error=${delivery.exceptionOrNull()}"
                             }
                         }
                     }
@@ -165,14 +165,12 @@ object IosBleManager: ABleManager() {
                 rssi = 0,
                 nativeHandle = peripheral
             )
-            log.d {
-                "[scan.result] type=known_addresses address=${foundDevice.address} name=${foundDevice.name}"
-            }
+            log.d { "[scan.result] address=${foundDevice.address} name=${foundDevice.name}" }
             val delivery = trySend(foundDevice)
             if (delivery.isFailure && !delivery.isClosed) {
                 log.w {
-                    "[scan.result_dropped] type=known_addresses " +
-                            "address=${foundDevice.address} name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
+                    "[scan.result_dropped] address=${foundDevice.address} " +
+                            "name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
                 }
             }
         }

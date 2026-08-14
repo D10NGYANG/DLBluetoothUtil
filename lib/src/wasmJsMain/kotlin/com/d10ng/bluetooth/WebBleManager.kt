@@ -101,13 +101,13 @@ object WebBleManager: ABleManager() {
                     nativeHandle = device
                 )
                 log.d {
-                    "[scan.result] type=device_picker address=${foundDevice.address} name=${foundDevice.name}"
+                    "[scan.result] address=${foundDevice.address} name=${foundDevice.name}"
                 }
                 val delivery = trySend(foundDevice)
                 if (delivery.isFailure && !delivery.isClosed) {
                     log.w {
-                        "[scan.result_dropped] type=device_picker " +
-                                "address=${foundDevice.address} name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
+                        "[scan.result_dropped] address=${foundDevice.address} " +
+                                "name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
                     }
                 }
             }
@@ -150,14 +150,13 @@ object WebBleManager: ABleManager() {
                         )
                         resultCount++
                         log.d {
-                            "[scan.result] type=known_addresses " +
-                                    "address=${foundDevice.address} name=${foundDevice.name}"
+                            "[scan.result] address=${foundDevice.address} name=${foundDevice.name}"
                         }
                         val delivery = trySend(foundDevice)
                         if (delivery.isFailure && !delivery.isClosed) {
                             log.w {
-                                "[scan.result_dropped] type=known_addresses " +
-                                        "address=${foundDevice.address} name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
+                                "[scan.result_dropped] address=${foundDevice.address} " +
+                                        "name=${foundDevice.name} error=${delivery.exceptionOrNull()}"
                             }
                         }
                     }

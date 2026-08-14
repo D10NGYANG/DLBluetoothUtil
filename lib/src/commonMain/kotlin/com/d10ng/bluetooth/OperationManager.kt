@@ -59,31 +59,16 @@ internal object OperationManager {
     internal suspend fun executeOperation(operation: OperationType): OperationResult? {
         val operationId = allocateOperationId()
         val startedAt = TimeSource.Monotonic.markNow()
-        log.d {
-            "[operation.queued] ${operation.logFields(operationId)} timeoutMs=${operation.timeoutMillis}"
-        }
         val operationLock = acquireLock(operation.address)
         try {
             val result = withTimeoutOrNull(operation.timeoutMillis.milliseconds) {
                 operationLock.mutex.withLock {
                     recoveringAddresses.first { operation.address !in it }
-                    log.d {
-                        "[operation.recovery_ready] ${operation.logFields(operationId)} " +
-                                "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
-                    }
-                    log.d {
-                        "[operation.started] ${operation.logFields(operationId)} " +
-                                "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
-                    }
                     val request = OperationRequest(operationId, operation)
                     var submitted = false
                     try {
                         queueChannel.send(request)
                         submitted = true
-                        log.d {
-                            "[operation.submitted] ${operation.logFields(operationId)} " +
-                                    "elapsedMs=${startedAt.elapsedNow().inWholeMilliseconds}"
-                        }
                         request.result.await()
                     } finally {
                         if (!request.result.isCompleted) {
@@ -99,11 +84,6 @@ internal object OperationManager {
             if (result == null) {
                 log.w {
                     "[operation.timeout] ${operation.logFields(operationId)} elapsedMs=$elapsedMs"
-                }
-            } else {
-                log.d {
-                    "[operation.completed] ${operation.logFields(operationId)} " +
-                            "success=${result.succeeded} elapsedMs=$elapsedMs"
                 }
             }
             return result

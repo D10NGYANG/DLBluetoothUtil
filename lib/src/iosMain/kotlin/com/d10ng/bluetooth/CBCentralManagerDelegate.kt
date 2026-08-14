@@ -32,7 +32,7 @@ internal val CBCentralManagerDelegate: CBCentralManagerDelegateProtocol = object
     ) {
         // 扫描结果
         val name = advertisementData["kCBAdvDataLocalName"]?.toString()?: didDiscoverPeripheral.name()
-        log.d { "[scan.result] type=service_filter address=${didDiscoverPeripheral.address} name=$name rssi=${RSSI.intValue}" }
+        log.d { "[scan.result] address=${didDiscoverPeripheral.address} name=$name rssi=${RSSI.intValue}" }
         BleCentralEvents.eventFlow.tryEmit(CBCentralManagerEvent.DidDiscoverPeripheral(didDiscoverPeripheral, name, RSSI.intValue))
     }
 
@@ -40,8 +40,6 @@ internal val CBCentralManagerDelegate: CBCentralManagerDelegateProtocol = object
         central: CBCentralManager,
         didConnectPeripheral: CBPeripheral
     ) {
-        // 连接成功
-        log.d { "[connect.callback] address=${didConnectPeripheral.address} name=${didConnectPeripheral.name()} result=success" }
         BleCentralEvents.eventFlow.tryEmit(CBCentralManagerEvent.DidConnectResult(didConnectPeripheral, true))
     }
 

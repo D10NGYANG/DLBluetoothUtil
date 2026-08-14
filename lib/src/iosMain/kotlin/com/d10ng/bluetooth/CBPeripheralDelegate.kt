@@ -26,11 +26,12 @@ internal val CBPeripheralDelegate: CBPeripheralDelegateProtocol = object : NSObj
         didDiscoverServices: NSError?
     ) {
         // 服务发现
-        val levelMessage = {
-            "[gatt.services_discovered] address=${peripheral.address} " +
-                    "name=${peripheral.name()} error=$didDiscoverServices services=${peripheral.services}"
+        if (didDiscoverServices != null) {
+            log.w {
+                "[gatt.services_discovered] address=${peripheral.address} " +
+                        "name=${peripheral.name()} error=$didDiscoverServices"
+            }
         }
-        if (didDiscoverServices == null) log.d(levelMessage) else log.w(levelMessage)
         if (didDiscoverServices != null) {
             BlePeripheralEvents.eventFlow.tryEmit(CBPeripheralEvent.DidDiscoverServices(peripheral, null))
             return
@@ -45,12 +46,13 @@ internal val CBPeripheralDelegate: CBPeripheralDelegateProtocol = object : NSObj
         error: NSError?
     ) {
         // 特征发现
-        val levelMessage = {
-            "[gatt.characteristics_discovered] address=${peripheral.address} " +
-                    "name=${peripheral.name()} serviceUuid=${didDiscoverCharacteristicsForService.UUID.UUIDString} " +
-                    "error=$error characteristics=${didDiscoverCharacteristicsForService.characteristics}"
+        if (error != null) {
+            log.w {
+                "[gatt.characteristics_discovered] address=${peripheral.address} " +
+                        "name=${peripheral.name()} serviceUuid=${didDiscoverCharacteristicsForService.UUID.UUIDString} " +
+                        "error=$error"
+            }
         }
-        if (error == null) log.d(levelMessage) else log.w(levelMessage)
         if (error != null) {
             BlePeripheralEvents.eventFlow.tryEmit(CBPeripheralEvent.DidDiscoverCharacteristicsForService(peripheral, didDiscoverCharacteristicsForService, null))
             return
@@ -104,12 +106,13 @@ internal val CBPeripheralDelegate: CBPeripheralDelegateProtocol = object : NSObj
         error: NSError?
     ) {
         val ch = didWriteValueForCharacteristic
-        val levelMessage = {
-            "[gatt.characteristic_write] address=${peripheral.address} " +
-                    "name=${peripheral.name()} serviceUuid=${ch.serviceUUIDString} " +
-                    "characteristicUuid=${ch.UUIDString} error=$error"
+        if (error != null) {
+            log.w {
+                "[gatt.characteristic_write] address=${peripheral.address} " +
+                        "name=${peripheral.name()} serviceUuid=${ch.serviceUUIDString} " +
+                        "characteristicUuid=${ch.UUIDString} error=$error"
+            }
         }
-        if (error == null) log.d(levelMessage) else log.w(levelMessage)
         BlePeripheralEvents.eventFlow.tryEmit(CBPeripheralEvent.DidWriteValueForCharacteristic(peripheral, ch, error == null))
     }
 
@@ -120,12 +123,13 @@ internal val CBPeripheralDelegate: CBPeripheralDelegateProtocol = object : NSObj
         error: NSError?
     ) {
         val ch = didUpdateNotificationStateForCharacteristic
-        val levelMessage = {
-            "[gatt.notification_state] address=${peripheral.address} " +
-                    "serviceUuid=${ch.serviceUUIDString} characteristicUuid=${ch.UUIDString} " +
-                    "isNotifying=${ch.isNotifying} error=$error"
+        if (error != null) {
+            log.w {
+                "[gatt.notification_state] address=${peripheral.address} " +
+                        "serviceUuid=${ch.serviceUUIDString} characteristicUuid=${ch.UUIDString} " +
+                        "isNotifying=${ch.isNotifying} error=$error"
+            }
         }
-        if (error == null) log.d(levelMessage) else log.w(levelMessage)
         BlePeripheralEvents.eventFlow.tryEmit(
             CBPeripheralEvent.DidUpdateNotificationState(peripheral, ch, error == null)
         )
@@ -136,7 +140,12 @@ internal val CBPeripheralDelegate: CBPeripheralDelegateProtocol = object : NSObj
         didWriteValueForDescriptor: CBDescriptor,
         error: NSError?
     ) {
-        log.d { "[CBPeripheralDelegate.didWriteValueForDescriptor] address: ${peripheral.address}, name: ${peripheral.name()}, descriptor: ${didWriteValueForDescriptor.UUID.UUIDString}" }
+        if (error != null) {
+            log.w {
+                "[gatt.descriptor_write] address=${peripheral.address} name=${peripheral.name()} " +
+                        "descriptorUuid=${didWriteValueForDescriptor.UUID.UUIDString} error=$error"
+            }
+        }
         BlePeripheralEvents.eventFlow.tryEmit(CBPeripheralEvent.DidWriteValueForDescriptor(peripheral, didWriteValueForDescriptor, error == null))
     }
 

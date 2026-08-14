@@ -43,14 +43,12 @@ object AndroidOperationRunner {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     fun start() {
-        log.d { "AndroidOperationRunner start" }
     }
 
     init {
         scope.launch {
             for (request in OperationManager.queueChannel) {
                 val operation = request.operation
-                log.d { "[operation.runner_received] ${operation.logFields(request.id)}" }
                 val job = launch(start = CoroutineStart.LAZY) {
                     when (operation) {
                         is OperationType.Connect -> connect(request, operation)
@@ -75,9 +73,6 @@ object AndroidOperationRunner {
 
     private suspend fun connect(request: OperationRequest, operation: OperationType.Connect) {
         val device = operation.obj as BluetoothDevice
-        log.i {
-            "[connect.start] ${operation.logFields(request.id)} name=${device.nameForLog()}"
-        }
         val connectionResult = CompletableDeferred<BleGattEvent.OnConnectionStateChange>()
         val callback = BleGattCallbackInstant(
             connectionResult,
@@ -99,9 +94,6 @@ object AndroidOperationRunner {
                 }
                 request.result.complete(operation.fail())
                 return
-            }
-            log.i {
-                "[connect.success] ${operation.logFields(request.id)} name=${device.nameForLog()}"
             }
             delivered = request.result.complete(operation.success(ConnectedGatt(event.gatt, callback)))
         } finally {
@@ -265,9 +257,6 @@ object AndroidOperationRunner {
             }
             request.result.complete(operation.fail())
             return
-        }
-        log.i {
-            "[request_mtu.success] ${operation.logFields(request.id)} negotiatedMtu=${event.mtu}"
         }
         request.result.complete(operation.success(event.mtu))
     }

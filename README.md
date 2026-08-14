@@ -5,7 +5,7 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-[![Latest](https://img.shields.io/badge/version-1.0.0-blue)](#)
+[![Latest](https://img.shields.io/badge/version-1.0.1-blue)](#)
 [![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
@@ -15,6 +15,7 @@
 - Web 示例：`/webDemo`（Kotlin/JS + Wasm）
 - 实现设计：[lib/ARCHITECTURE.md](lib/ARCHITECTURE.md)
 - 更新日志与升级迁移：[CHANGELOG.md](CHANGELOG.md)
+- `1.0.1` 发布说明：[docs/RELEASE_1.0.1.md](docs/RELEASE_1.0.1.md)
 - `1.0.0` 升级指南：[docs/MIGRATION_1.0.0.md](docs/MIGRATION_1.0.0.md)
 
 **在线预览：[https://d10ngyang.github.io/DLBluetoothUtil/](https://d10ngyang.github.io/DLBluetoothUtil/)**
@@ -75,16 +76,16 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.github.D10NGYANG:DLBluetoothUtil:1.0.0")
+            implementation("com.github.D10NGYANG:DLBluetoothUtil:1.0.1")
         }
     }
 }
 ```
 
-从 `0.9.0` 升级到 `1.0.0` 不需要修改公共 BLE API 调用，但必须确认 Android 权限归属、蓝牙开启
-结果监听、连接失败策略以及完整通讯日志的数据管理。参见
-[1.0.0 升级指南](docs/MIGRATION_1.0.0.md)。从 `0.8.0` 升级还需先完成
-[0.9.0 API 迁移](CHANGELOG.md#从-080-升级到-090)。
+从 `1.0.0` 升级到 `1.0.1` 不需要修改公共 BLE API，只需留意扫描和移动端操作日志的精简，参见
+[1.0.1 发布说明](docs/RELEASE_1.0.1.md)。从 `0.9.0` 升级时，还需完成
+[1.0.0 升级指南](docs/MIGRATION_1.0.0.md)中的权限、连接生命周期和日志数据检查；从 `0.8.0`
+升级还需先完成[0.9.0 API 迁移](CHANGELOG.md#从-080-升级到-090)。
 
 ## 日志输出控制
 
@@ -125,6 +126,10 @@ fun initLogging() {
 - 推荐在应用启动时设置，如：Android 的 `Application.onCreate`、JVM/桌面项目的 `main` 函数、Web 页面初始化等
 - `DEBUG` 会输出完整的 BLE 收发数据，事件名为 `[ble.tx]` 和 `[ble.rx]`，payload 使用大写、连续的
   HEX 格式，并保留完整设备名称、地址、服务 UUID 和特征 UUID，便于按现场设备反查问题。
+- 从 `1.0.1` 起，每条 `[scan.result]` 仅记录 `address`、`name` 和 `rssi`；扫描类型只在
+  `[scan.start]`、`[scan.stop]` 中记录。移动端正常操作不再输出内部队列阶段和原生成功回调。
+- 一次成功写入通常只产生 `[ble.tx]` 和 `[write.success]`；失败、超时、取消、恢复和原生错误日志
+  仍保留完整的操作上下文。
 - 通讯日志采用固定位置格式 `设备名@地址 服务UUID/特征UUID 字节数 HEX`，末尾仅按需附加 `op=`、
   `type=` 等短字段，例如：`[ble.tx] X1E@12:7B:56:E2:37:56 service/characteristic 7B 30302A34440D0A op=2 type=with-rsp`。
 - 设备信息和通讯 payload 可能包含敏感数据；生产环境开启或收集 `DEBUG` 日志时，应限制日志访问、

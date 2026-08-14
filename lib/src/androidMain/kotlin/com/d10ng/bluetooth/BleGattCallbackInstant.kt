@@ -62,20 +62,12 @@ internal class BleGattCallbackInstant(
         mutableConnectionState.value = event
         connectionResult.complete(event)
         eventFlow.tryEmit(event)
-        log.d {
-            "[gatt.connection_state] address=$deviceAddress " +
-                    "name=${deviceName()} status=$status newState=$newState"
-        }
     }
 
     override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
         if (gatt == null) {
             log.w { "[gatt.services_discovered] error=gatt_is_null status=$status" }
             return
-        }
-        log.d {
-            "[gatt.services_discovered] address=$deviceAddress " +
-                    "name=${deviceName()} status=$status services=${gatt.services.size}"
         }
         eventFlow.tryEmit(BleGattEvent.OnServicesDiscovered(gatt, status))
     }
@@ -89,10 +81,6 @@ internal class BleGattCallbackInstant(
             log.w { "[gatt.characteristic_write] error=null_callback_argument status=$status" }
             return
         }
-        log.d {
-            "[gatt.characteristic_write] address=$deviceAddress name=${deviceName()} " +
-                    "serviceUuid=${characteristic.service.uuid} characteristicUuid=${characteristic.uuid} status=$status"
-        }
         eventFlow.tryEmit(BleGattEvent.OnCharacteristicWrite(gatt, characteristic, status))
     }
 
@@ -104,11 +92,6 @@ internal class BleGattCallbackInstant(
         if (gatt == null || descriptor == null) {
             log.w { "[gatt.descriptor_write] error=null_callback_argument status=$status" }
             return
-        }
-        log.d {
-            "[gatt.descriptor_write] address=$deviceAddress name=${deviceName()} " +
-                    "serviceUuid=${descriptor.characteristic.service.uuid} " +
-                    "characteristicUuid=${descriptor.characteristic.uuid} descriptorUuid=${descriptor.uuid} status=$status"
         }
         eventFlow.tryEmit(BleGattEvent.OnDescriptorWrite(gatt, descriptor, status))
     }
@@ -162,10 +145,6 @@ internal class BleGattCallbackInstant(
         if (gatt == null) {
             log.w { "[gatt.mtu_changed] error=gatt_is_null mtu=$mtu status=$status" }
             return
-        }
-        log.d {
-            "[gatt.mtu_changed] address=$deviceAddress " +
-                    "name=${deviceName()} mtu=$mtu status=$status"
         }
         eventFlow.tryEmit(BleGattEvent.OnMtuChanged(gatt, mtu, status))
     }

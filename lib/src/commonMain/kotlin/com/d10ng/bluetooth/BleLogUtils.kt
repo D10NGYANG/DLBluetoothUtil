@@ -1,6 +1,5 @@
 package com.d10ng.bluetooth
 
-import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
 import com.d10ng.bluetooth.constant.BleGattService
 
@@ -29,15 +28,6 @@ internal fun OperationType.logFields(operationId: Long): String = buildString {
         is OperationType.MtuChanged -> append(" requestedMtu=$mtu")
     }
 }
-
-internal val OperationResult.succeeded: Boolean
-    get() = when (this) {
-        is OperationResult.Connect -> result
-        is OperationResult.DiscoverServices -> services.isNotEmpty()
-        is OperationResult.Notify -> result
-        is OperationResult.Write -> result
-        is OperationResult.MtuChanged -> result
-    }
 
 internal fun ByteArray.toHexLog(): String = joinToString(separator = "") { byte ->
     byte.toUByte().toString(radix = 16).uppercase().padStart(2, '0')

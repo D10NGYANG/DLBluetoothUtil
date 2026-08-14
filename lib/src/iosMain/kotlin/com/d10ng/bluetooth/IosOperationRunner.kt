@@ -63,13 +63,11 @@ object IosOperationRunner {
     }
 
     fun start() {
-        log.d { "IosOperationRunner start" }
         // 确保初始化
         centralManager
     }
 
     internal fun onPeripheralDisconnected(peripheral: CBPeripheral) {
-        log.d { "[disconnect.event_forwarded] address=${peripheral.address} name=${peripheral.name()}" }
         disconnectEvents.tryEmit(peripheral)
     }
 
@@ -77,7 +75,6 @@ object IosOperationRunner {
         scope.launch {
             for (request in OperationManager.queueChannel) {
                 val operation = request.operation
-                log.d { "[operation.runner_received] ${operation.logFields(request.id)}" }
                 val job = launch(start = CoroutineStart.LAZY) {
                     when (operation) {
                         is OperationType.Connect -> connect(request, operation)
@@ -102,18 +99,12 @@ object IosOperationRunner {
 
     private suspend fun connect(request: OperationRequest, operation: OperationType.Connect) {
         val device = operation.obj as CBPeripheral
-        log.i {
-            "[connect.start] ${operation.logFields(request.id)} name=${device.name()}"
-        }
         var delivered = false
         try {
             val event = awaitCentralEvent<CBCentralManagerEvent.DidConnectResult>(operation.address) {
                 centralManager.connectPeripheral(device, null)
             }
             if (event.result) {
-                log.i {
-                    "[connect.success] ${operation.logFields(request.id)} name=${device.name()}"
-                }
                 delivered = request.result.complete(operation.success(event.peripheral))
             } else {
                 log.w {
@@ -274,9 +265,6 @@ object IosOperationRunner {
     private fun requestMtu(request: OperationRequest, operation: OperationType.MtuChanged) {
         val device = operation.obj as CBPeripheral
         val mtu = device.maximumWriteValueLengthForType(CBCharacteristicWriteWithoutResponse)
-        log.i {
-            "[request_mtu.success] ${operation.logFields(request.id)} payloadLength=${mtu.toInt()}"
-        }
         request.result.complete(operation.success(mtu.toInt()))
     }
 

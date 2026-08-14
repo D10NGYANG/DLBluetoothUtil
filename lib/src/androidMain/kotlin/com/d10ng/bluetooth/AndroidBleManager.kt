@@ -180,30 +180,27 @@ object AndroidBleManager: ABleManager() {
                 val delivery = trySend(device)
                 if (delivery.isSuccess) {
                     log.d {
-                        "[scan.result] type=service_filter elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt} " +
-                                "callbackType=$callbackType address=${device.address} name=${device.name} rssi=${device.rssi}"
+                        "[scan.result] address=${device.address} name=${device.name} rssi=${device.rssi}"
                     }
                 } else if (!delivery.isClosed) {
                     log.w {
-                        "[scan.result_dropped] type=service_filter address=${device.address} " +
+                        "[scan.result_dropped] address=${device.address} " +
                                 "name=${device.name} reason=buffer_unavailable"
                     }
                 }
             }
             override fun onBatchScanResults(results: List<ScanResult?>?) {
-                log.d { "[ScanCallback.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}" }
                 results.orEmpty().filterNotNull().forEach { result ->
                     val device = BleDevice(result.device.name, result.device.address, result.rssi, result.device)
                     val delivery = trySend(device)
                     if (delivery.isSuccess) {
                         log.d {
-                            "[scan.result] type=service_filter source=batch " +
-                                    "elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt} address=${device.address} " +
+                            "[scan.result] source=batch address=${device.address} " +
                                     "name=${device.name} rssi=${device.rssi}"
                         }
                     } else if (!delivery.isClosed) {
                         log.w {
-                            "[scan.result_dropped] type=service_filter address=${device.address} " +
+                            "[scan.result_dropped] address=${device.address} " +
                                     "name=${device.name} reason=buffer_unavailable"
                         }
                     }
@@ -302,30 +299,27 @@ object AndroidBleManager: ABleManager() {
                 val delivery = trySend(device)
                 if (delivery.isSuccess) {
                     log.d {
-                        "[scan.result] type=address_filter elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt} " +
-                                "callbackType=$callbackType address=${device.address} name=${device.name} rssi=${device.rssi}"
+                        "[scan.result] address=${device.address} name=${device.name} rssi=${device.rssi}"
                     }
                 } else if (!delivery.isClosed) {
                     log.w {
-                        "[scan.result_dropped] type=address_filter address=${device.address} " +
+                        "[scan.result_dropped] address=${device.address} " +
                                 "name=${device.name} reason=buffer_unavailable"
                     }
                 }
             }
             override fun onBatchScanResults(results: List<ScanResult?>?) {
-                log.d { "[scanByAddress.onBatchScanResults] elapsedMs: ${SystemClock.elapsedRealtime() - scanStartedAt}, count: ${results?.size ?: 0}" }
                 results.orEmpty().filterNotNull().forEach { result ->
                     val device = BleDevice(result.device.name, result.device.address, result.rssi, result.device)
                     val delivery = trySend(device)
                     if (delivery.isSuccess) {
                         log.d {
-                            "[scan.result] type=address_filter source=batch " +
-                                    "elapsedMs=${SystemClock.elapsedRealtime() - scanStartedAt} address=${device.address} " +
+                            "[scan.result] source=batch address=${device.address} " +
                                     "name=${device.name} rssi=${device.rssi}"
                         }
                     } else if (!delivery.isClosed) {
                         log.w {
-                            "[scan.result_dropped] type=address_filter address=${device.address} " +
+                            "[scan.result_dropped] address=${device.address} " +
                                     "name=${device.name} reason=buffer_unavailable"
                         }
                     }
