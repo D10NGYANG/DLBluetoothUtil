@@ -30,7 +30,6 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
-        maven("https://jitpack.io")
     }
 }
 
@@ -38,5 +37,5 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-include(":lib", ":mobileDemo", ":webDemo")
+include(":lib", ":mobileDemo", ":androidDemo", ":webDemo")
 project(":lib").name = "DLBluetoothUtil"

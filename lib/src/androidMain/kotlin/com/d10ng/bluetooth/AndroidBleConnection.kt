@@ -102,9 +102,9 @@ internal class AndroidBleConnection(
         if (!result.result) {
             log.w { "[request_mtu.fallback] address=${device.address} reason=native_failure payloadLength=${GATT_MIN_MTU_SIZE - 3}" }
         } else {
-            log.i { "[request_mtu.ready] address=${device.address} mtu=${result.mtu} payloadLength=${result.mtu - 3}" }
+            log.i { "[request_mtu.ready] address=${device.address} mtu=${result.mtu} payloadLength=${payloadLength(result.mtu)}" }
         }
-        return (if (result.result) result.mtu else GATT_MIN_MTU_SIZE) - 3
+        return payloadLength(if (result.result) result.mtu else GATT_MIN_MTU_SIZE)
     }
 
     override suspend fun write(
@@ -112,6 +112,7 @@ internal class AndroidBleConnection(
         value: ByteArray
     ) {
         checkConnected()
+        require(value.size <= GATT_MAX_ATTRIBUTE_LENGTH) { "Write payload exceeds 512 bytes" }
         val result = OperationManager.execute<OperationResult.Write>(OperationType.Write(device.address, characteristic, value, gatt))
             ?: throw Exception("write timed out")
         if (!result.result) throw Exception("write failed")

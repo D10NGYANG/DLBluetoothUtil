@@ -6,13 +6,13 @@ import com.d10ng.bluetooth.constant.BleGattService
 import com.d10ng.bluetooth.constant.CBCentralManagerEvent
 import com.d10ng.bluetooth.constant.CBPeripheralEvent
 import com.d10ng.bluetooth.constant.OperationType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
@@ -76,20 +76,27 @@ object IosOperationRunner {
             for (request in OperationManager.queueChannel) {
                 val operation = request.operation
                 val job = launch(start = CoroutineStart.LAZY) {
-                    when (operation) {
-                        is OperationType.Connect -> connect(request, operation)
-                        is OperationType.DiscoverServices -> discoverServices(request, operation)
-                        is OperationType.Notify -> notify(request, operation)
-                        is OperationType.Write -> write(request, operation)
-                        is OperationType.MtuChanged -> requestMtu(request, operation)
+                    request.runSafely {
+                        when (operation) {
+                            is OperationType.Connect -> connect(request, operation)
+                            is OperationType.DiscoverServices -> discoverServices(request, operation)
+                            is OperationType.Notify -> notify(request, operation)
+                            is OperationType.Write -> write(request, operation)
+                            is OperationType.MtuChanged -> requestMtu(request, operation)
+                        }
                     }
                 }
-                request.result.invokeOnCompletion {
-                    if (request.result.isCancelled) {
-                        scope.launch {
-                            job.cancelAndJoin()
-                            cleanupCancelledOperation(request)
-                        }
+                request.result.invokeOnCompletion { error ->
+                    if (error is CancellationException) job.cancel()
+                }
+                scope.launch {
+                    job.join()
+                    try {
+                        if (job.isCancelled) cleanupCancelledOperation(request)
+                    } catch (error: Throwable) {
+                        log.e { "[operation.cleanup_failed] ${error.stackTraceToString()}" }
+                    } finally {
+                        request.recovered.complete(Unit)
                     }
                 }
                 job.start()
@@ -105,7 +112,7 @@ object IosOperationRunner {
                 centralManager.connectPeripheral(device, null)
             }
             if (event.result) {
-                delivered = request.result.complete(operation.success(event.peripheral))
+                delivered = request.result.complete(operation.success(event.peripheral) { centralManager.cancelPeripheralConnection(device) })
             } else {
                 log.w {
                     "[connect.failed] ${operation.logFields(request.id)} name=${device.name()}"
@@ -148,7 +155,7 @@ object IosOperationRunner {
             ) {
                 device.discoverCharacteristics(null, service)
             }
-            service to (e.characteristics ?: listOf())
+            service to checkNotNull(e.characteristics) { "Characteristic discovery failed for ${service.UUIDString}" }
         }
         val map = list.map { (service, characteristics) ->
             BleGattService(
@@ -313,7 +320,6 @@ object IosOperationRunner {
     private suspend fun cleanupCancelledOperation(request: OperationRequest) {
         val operation = request.operation
         if (operation !is OperationType.Connect) {
-            OperationManager.markRecovered(operation.address, request.id, operation.logName)
             return
         }
         val device = operation.obj as CBPeripheral
@@ -333,7 +339,6 @@ object IosOperationRunner {
                 disconnected.cancel()
             }
         }
-        OperationManager.markRecovered(operation.address, request.id, operation.logName)
     }
 
     private const val RECOVERY_FALLBACK_MILLIS = 1_000L

@@ -1,5 +1,12 @@
 package com.d10ng.bluetooth.demo
 
+import org.jetbrains.compose.resources.painterResource
+import dlbluetoothutil_project.webdemo.generated.resources.Res
+import dlbluetoothutil_project.webdemo.generated.resources.ms_bluetooth
+import dlbluetoothutil_project.webdemo.generated.resources.ms_check
+import dlbluetoothutil_project.webdemo.generated.resources.ms_delete
+import dlbluetoothutil_project.webdemo.generated.resources.ms_refresh
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,11 +28,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,7 +65,10 @@ import com.d10ng.bluetooth.constant.BleGattService
 import com.d10ng.bluetooth.getPlatformBleManager
 import com.d10ng.bluetooth.registerWebBleUseService
 import com.d10ng.log.LogLevel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.format
@@ -93,6 +99,7 @@ fun App() {
 
         val bleManager = remember { getPlatformBleManager() }
         val scope = rememberCoroutineScope()
+        val operations = remember { Mutex() }
 
         // 左侧：服务注册 + 扫描 + 设备信息 + 服务特征管理
         var serviceInput by remember { mutableStateOf("") }
@@ -108,36 +115,51 @@ fun App() {
         // 右侧：通讯区域
         val messages = remember { mutableStateListOf<ChatMessage>() }
 
-        // 连接后：发现服务、同步订阅状态、监听通知并默认选择可写特征
+        DisposableEffect(connection) {
+            val owned = connection
+            onDispose { owned?.disconnect() }
+        }
+
         LaunchedEffect(connection) {
             val conn = connection ?: return@LaunchedEffect
-            // 发现服务（再次触发，避免首次连接时服务为空）
-            services = runCatching { conn.discoverServices() }.getOrDefault(emptyList())
-            maxWriteSize = max(20, runCatching { conn.requestMaxMtu() }.getOrDefault(20))
-            // 默认选择首个可写特征
-            selectedWriteChar = services.flatMap { it.characteristics }
-                .firstOrNull { ch -> ch.properties.contains(BleGattCharacteristicProperty.WRITE) || ch.properties.contains(BleGattCharacteristicProperty.WRITE_NO_RESPONSE) }
-
-            // 自动订阅所有可通知的特征（不包含 INDICATE）
-            services.flatMap { it.characteristics }
-                .filter { ch -> ch.properties.contains(BleGattCharacteristicProperty.NOTIFY) }
-                .forEach { ch ->
-                    scope.launch { runCatching { conn.notify(ch, true) } }
-                }
-
-            // 同步订阅状态
-            scope.launch {
+            launch {
                 conn.notifyStatusFlow.collect { list ->
                     subscribedChars.clear()
                     subscribedChars.addAll(list)
                 }
             }
-            // 通知数据
-            scope.launch {
+            launch {
                 conn.notifyDataFlow.collect { data ->
-                    val content = runCatching { data.data.decodeToString() }.getOrDefault("")
-                    messages.add(ChatMessage(Clock.System.now(), "RX", "${data.characteristic.uuid}: $content"))
+                    messages.add(ChatMessage(Clock.System.now(), "RX", "${data.characteristic.uuid}: ${data.data.decodeToString()}"))
                 }
+            }
+            launch {
+                conn.isConnectedFlow.collect { connected ->
+                    if (!connected && connection === conn) {
+                        connection = null
+                        services = emptyList()
+                        selectedWriteChar = null
+                        subscribedChars.clear()
+                    }
+                }
+            }
+            try {
+                operations.withLock {
+                    services = conn.discoverServices()
+                    maxWriteSize = conn.requestMaxMtu()
+                    selectedWriteChar = services.flatMap { it.characteristics }.firstOrNull {
+                        BleGattCharacteristicProperty.WRITE in it.properties ||
+                            BleGattCharacteristicProperty.WRITE_NO_RESPONSE in it.properties
+                    }
+                    services.flatMap { it.characteristics }.filter {
+                        BleGattCharacteristicProperty.NOTIFY in it.properties ||
+                            BleGattCharacteristicProperty.INDICATE in it.properties
+                    }.forEach { ch -> conn.notify(ch, true) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                messages.add(ChatMessage(Clock.System.now(), "ERR", error.message ?: "初始化失败"))
             }
         }
 
@@ -180,7 +202,7 @@ fun App() {
                                 }
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(imageVector = Icons.Filled.Refresh, contentDescription = null)
+                                    Icon(painter = painterResource(Res.drawable.ms_refresh), contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(text = if (scanning) "扫描中..." else "扫描设备")
                                 }
@@ -221,7 +243,17 @@ fun App() {
                             subscribed = subscribedChars,
                             onToggleNotify = { ch, enable ->
                                 val conn = connection ?: return@DeviceInfoArea
-                                scope.launch { runCatching { conn.notify(ch, enable) } }
+                                scope.launch {
+                                    try {
+                                        operations.withLock {
+                                            if (connection === conn) conn.notify(ch, enable)
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (error: Throwable) {
+                                        messages.add(ChatMessage(Clock.System.now(), "ERR", error.message ?: "订阅失败"))
+                                    }
+                                }
                             },
                             selectedWrite = selectedWriteChar,
                             onSelectWrite = { ch -> selectedWriteChar = ch }
@@ -248,16 +280,20 @@ fun App() {
                         val msg = if (text.isNotBlank()) text + "\r\n" else "\r\n"
                         scope.launch {
                             runCatching {
-                                val data = msg.encodeToByteArray()
-                                var idx = 0
-                                while (idx < data.size) {
-                                    val end = min(data.size, idx + maxWriteSize)
-                                    val chunk = data.copyOfRange(idx, end)
-                                    conn.write(ch, chunk)
-                                    idx = end
+                                operations.withLock {
+                                    check(connection === conn) { "连接已断开" }
+                                    val data = msg.encodeToByteArray()
+                                    var idx = 0
+                                    while (idx < data.size) {
+                                        val end = min(data.size, idx + maxWriteSize)
+                                        val chunk = data.copyOfRange(idx, end)
+                                        conn.write(ch, chunk)
+                                        idx = end
+                                    }
+                                    messages.add(ChatMessage(Clock.System.now(), "TX", "${ch.uuid}: $text"))
                                 }
-                                messages.add(ChatMessage(Clock.System.now(), "TX", "${ch.uuid}: $text"))
                             }.onFailure { e ->
+                                if (e is CancellationException) throw e
                                 messages.add(ChatMessage(Clock.System.now(), "ERR", e.message ?: "发送失败"))
                             }
                         }
@@ -289,7 +325,7 @@ private fun DeviceInfoArea(
                     Text(text = "尚未选择设备", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Filled.Bluetooth, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(painter = painterResource(Res.drawable.ms_bluetooth), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(text = device.name ?: "Unknown", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -355,8 +391,8 @@ private fun ServicesList(
                     Spacer(modifier = Modifier.height(8.dp))
                     service.characteristics.forEachIndexed { cIdx, ch ->
                         val props = ch.properties
-                        val canNotify = props.contains(BleGattCharacteristicProperty.NOTIFY)
-                        val enabled = subscribed.any { it.uuid == ch.uuid }
+                        val canNotify = props.contains(BleGattCharacteristicProperty.NOTIFY) || props.contains(BleGattCharacteristicProperty.INDICATE)
+                        val enabled = subscribed.contains(ch)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -371,7 +407,7 @@ private fun ServicesList(
                                         val (bg, fg) = propColors(p)
                                         val shape = RoundedCornerShape(8.dp)
                                         if (p == BleGattCharacteristicProperty.WRITE || p == BleGattCharacteristicProperty.WRITE_NO_RESPONSE) {
-                                            val selected = selectedWrite?.uuid == ch.uuid
+                                            val selected = selectedWrite == ch
                                             Box(
                                                 modifier = Modifier
                                                     .background(bg, shape)
@@ -379,7 +415,7 @@ private fun ServicesList(
                                             ) {
                                                 Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                                     if (selected) {
-                                                        Icon(imageVector = Icons.Filled.Check, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
+                                                        Icon(painter = painterResource(Res.drawable.ms_check), contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
                                                         Spacer(modifier = Modifier.width(4.dp))
                                                     }
                                                     Text(text = propLabel(p), color = fg, style = MaterialTheme.typography.labelSmall)
@@ -472,7 +508,7 @@ private fun ChatArea(
             title = { Text(text = title.ifBlank { "通讯" }) },
             actions = {
                 IconButton(onClick = onClear, enabled = enabled) {
-                    Icon(imageVector = Icons.Filled.Delete, contentDescription = "清空记录")
+                    Icon(painter = painterResource(Res.drawable.ms_delete), contentDescription = "清空记录")
                 }
             }
         )

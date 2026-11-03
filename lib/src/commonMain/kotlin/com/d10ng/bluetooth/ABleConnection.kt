@@ -36,6 +36,8 @@ abstract class ABleConnection(
 
         /** Client Characteristic Configuration Descriptor 的标准 UUID。 */
         const val CCC_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805F9B34FB"
+        internal const val GATT_MAX_ATTRIBUTE_LENGTH = 512
+        internal fun payloadLength(mtu: Int): Int = minOf(mtu - 3, GATT_MAX_ATTRIBUTE_LENGTH)
         private const val NOTIFY_BUFFER_CAPACITY = 64
     }
 
@@ -88,7 +90,7 @@ abstract class ABleConnection(
     /**
      * 获取当前平台可用于单次写入的最大 payload 长度。
      *
-     * Android 将协商后的 ATT MTU 扣除 3 字节头；iOS 直接使用 CoreBluetooth 报告的最大写入
+     * Android 将协商后的 ATT MTU 扣除 3 字节头，并限制在 512 字节以内；iOS 直接使用 CoreBluetooth 报告的最大写入
      * 长度；请求失败时回退为 20。Web 无法协商 MTU，固定返回 20。返回值用于调用方自行分包，
      * 而不是原始 ATT MTU。失败或超时不会主动断开连接。
      */

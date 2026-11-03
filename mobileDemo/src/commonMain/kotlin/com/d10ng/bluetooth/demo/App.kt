@@ -1,5 +1,14 @@
 package com.d10ng.bluetooth.demo
 
+import org.jetbrains.compose.resources.painterResource
+import dlbluetoothutil_project.mobiledemo.generated.resources.Res
+import dlbluetoothutil_project.mobiledemo.generated.resources.ms_bluetooth
+import dlbluetoothutil_project.mobiledemo.generated.resources.ms_check
+import dlbluetoothutil_project.mobiledemo.generated.resources.ms_delete
+import dlbluetoothutil_project.mobiledemo.generated.resources.ms_refresh
+import dlbluetoothutil_project.mobiledemo.generated.resources.ms_settings
+import dlbluetoothutil_project.mobiledemo.generated.resources.ms_arrow_back
+
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -25,13 +34,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.Bluetooth
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -51,6 +53,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -89,7 +92,7 @@ import kotlinx.datetime.format
 import kotlinx.datetime.format.FormatStringsInDatetimeFormats
 import kotlinx.datetime.format.byUnicodePattern
 import kotlinx.datetime.toLocalDateTime
-import org.jetbrains.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.Preview
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
@@ -107,7 +110,10 @@ fun App(
 ) {
     MaterialTheme {
         var screen by remember { mutableStateOf<Screen>(Screen.DeviceList) }
-        val scope = rememberCoroutineScope()
+        val currentConnection = (screen as? Screen.Chat)?.connection
+        DisposableEffect(currentConnection) {
+            onDispose { currentConnection?.disconnect() }
+        }
 
         LaunchedEffect(Unit) {
             BluetoothManagerLog.miniLevel = LogLevel.VERBOSE
@@ -151,14 +157,14 @@ private fun DeviceListScreen(
             actions = {
                 IconButton(onClick = onBluetoothClick) {
                     Icon(
-                        imageVector = Icons.Outlined.Bluetooth,
+                        painter = painterResource(Res.drawable.ms_bluetooth),
                         contentDescription = "蓝牙状态",
                         tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                     )
                 }
                 IconButton(onClick = onScanClick) {
                     Icon(
-                        imageVector = Icons.Filled.Refresh,
+                        painter = painterResource(Res.drawable.ms_refresh),
                         contentDescription = "刷新",
                         modifier = Modifier.rotate(if (scanning) angle else 0f)
                     )
@@ -255,7 +261,7 @@ private fun DeviceListScreen(
                     label = { Text(if (scanning) "扫描中..." else "点击右上角刷新扫描设备") },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Filled.Refresh,
+                            painter = painterResource(Res.drawable.ms_refresh),
                             contentDescription = null,
                             modifier = Modifier.size(18.dp).rotate(if (scanning) chipAngle else 0f),
                             tint = MaterialTheme.colorScheme.primary
@@ -274,6 +280,7 @@ private fun DeviceListScreen(
                         device = dev,
                         connecting = dev.address == connectProgress?.address,
                         onClick = {
+                            if (connectProgress != null) return@DeviceItem
                             scope.launch {
                                 connectProgress = dev
                                 errorMsg = null
@@ -309,7 +316,7 @@ private fun DeviceItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Outlined.Bluetooth,
+                painter = painterResource(Res.drawable.ms_bluetooth),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(24.dp)
@@ -384,7 +391,7 @@ private fun ChatScreen(
             title = { Text(text = connection.device.name ?: "Unknown") },
             navigationIcon = {
                 IconButton(onClick = onBack) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    Icon(painter = painterResource(Res.drawable.ms_arrow_back), contentDescription = "返回")
                 }
             },
             actions = {
@@ -392,13 +399,13 @@ private fun ChatScreen(
                 Box {
                     BadgedBox(badge = { Badge { Text("${notifyStatusList.size}") } }) {
                         IconButton(onClick = onOpenServiceDialog) {
-                            Icon(imageVector = Icons.Outlined.Settings, contentDescription = "服务特征管理")
+                            Icon(painter = painterResource(Res.drawable.ms_settings), contentDescription = "服务特征管理")
                         }
                     }
                 }
                 // 清除按钮，位于订阅管理按钮右侧
                 IconButton(onClick = onClearLog) {
-                    Icon(imageVector = Icons.Filled.Delete, contentDescription = "清空记录")
+                    Icon(painter = painterResource(Res.drawable.ms_delete), contentDescription = "清空记录")
                 }
             }
         )
@@ -554,8 +561,8 @@ private fun ChatScreen(
 
                                                 service.characteristics.forEachIndexed { cIdx, ch ->
                                                     val props = ch.properties
-                                                    val isNotifiable = props.contains(BleGattCharacteristicProperty.NOTIFY)
-                                                    val subscribed = notifyStatus.any { it.uuid == ch.uuid }
+                                                    val isNotifiable = props.contains(BleGattCharacteristicProperty.NOTIFY) || props.contains(BleGattCharacteristicProperty.INDICATE)
+                                                    val subscribed = notifyStatus.contains(ch)
 
                                                     Row(
                                                         modifier = Modifier
@@ -576,7 +583,7 @@ private fun ChatScreen(
                                                                     val shape = RoundedCornerShape(8.dp)
                                                                     if (p == BleGattCharacteristicProperty.WRITE || p == BleGattCharacteristicProperty.WRITE_NO_RESPONSE) {
                                                                         // 可写特征：点击选择为写入特征（单选）
-                                                                        val selected = selectedChar?.uuid == ch.uuid
+                                                                        val selected = selectedChar == ch
                                                                         Box(
                                                                             modifier = Modifier
                                                                                 .background(bg, shape)
@@ -584,7 +591,7 @@ private fun ChatScreen(
                                                                         ) {
                                                                             Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                                                                 if (selected) {
-                                                                                    Icon(imageVector = Icons.Filled.Check, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
+                                                                                    Icon(painter = painterResource(Res.drawable.ms_check), contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
                                                                                     Spacer(modifier = Modifier.width(4.dp))
                                                                                 }
                                                                                 Text(text = propLabel(p), color = fg, style = MaterialTheme.typography.labelSmall)

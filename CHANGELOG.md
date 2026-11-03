@@ -3,6 +3,27 @@
 本文记录 DLBluetoothUtil 的重要变更与升级适配方式。从 `1.0.0` 起按语义化版本管理：公共 API
 不兼容调整提升主版本，向后兼容能力提升次版本，问题修复提升补丁版本。
 
+## [1.1.0] - 2026-11-03
+
+### 可靠性与平台支持
+
+- 新增 `iosSimulatorArm64` 库制品与 Demo 目标，支持 Apple Silicon Mac 上的 iOS 模拟器测试。
+- Android/iOS 单次原生操作异常不再终止整个队列；修复连接结果完成但未交付时取消造成的资源泄漏，以及恢复信号竞态。
+- Android 写入 payload 上限限制为 `minOf(MTU - 3, 512)`；超过 512 字节在调用边界明确失败。
+- Android 通知配置失败时恢复先前的本地注册；iOS 特征发现错误不再被当作空列表成功返回。
+- Web 连接取消后清理未交付结果；旧连接重复断开不再误断新会话；断开后的迟到配置结果不再恢复监听器。
+- 两个 Demo 修复连接生命周期、特征身份和 INDICATE 开关，Web Demo 串行执行 GATT 操作。
+
+### 构建与示例
+
+- 升级 Gradle 9.8.2、AGP 9.5.0、Kotlin 2.4.21、Compose Multiplatform 1.12.2、Datetime 0.8.0、Versions 0.67.0。
+- Android KMP 模块采用官方插件；应用入口移至 `androidDemo`，包名保持不变；compileSdk 37、targetSdk 36、minSdk 26。
+- Material3 保持稳定版 1.9.0，移除闲置直接依赖和 JitPack，用官方 Material Symbols 按需资源替代旧图标库。
+- 发布仓库为 `D10NGYANG/maven-repo/main/repository`，主坐标及 Android 平台坐标保持不变。
+
+公共 API 兼容；行为变化、源码构建入口与验证边界见 [1.1.0 升级指南](docs/MIGRATION_1.1.0.md)，
+发布摘要见 [1.1.0 发布说明](docs/RELEASE_1.1.0.md)。
+
 ## [1.0.1] - 2026-08-14
 
 `1.0.1` 是日志精简补丁版本，不改变公共 BLE API、连接状态机或通讯行为。

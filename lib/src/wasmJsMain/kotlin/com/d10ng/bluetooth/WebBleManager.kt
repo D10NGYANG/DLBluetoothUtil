@@ -20,6 +20,8 @@ object WebBleManager: ABleManager() {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
+    private val pendingConnections = mutableSetOf<String>()
+
     // 想要访问的服务UUID列表
     private val optionalServices = mutableSetOf(
         "generic_access",
@@ -173,7 +175,17 @@ object WebBleManager: ABleManager() {
         log.i { "[connect.requested] address=${device.address} name=${device.name}" }
         return try {
             val d = device.nativeHandle as BluetoothDevice
-            val gatt = d.gatt.connect().await<BluetoothRemoteGATTServer>()
+            check(pendingConnections.add(device.address)) { "A connection attempt is already pending" }
+            val server = d.gatt
+            val gatt = deliverWebConnection(
+                scope = scope,
+                connect = { server.connect().await<BluetoothRemoteGATTServer>() },
+                disconnect = {
+                    runCatching { server.disconnect() }
+                        .onFailure { log.e { "[connect.cleanup_failed] ${it.stackTraceToString()}" } }
+                },
+                finished = { pendingConnections.remove(device.address) },
+            )
             log.i { "[connect.ready] address=${device.address} name=${device.name}" }
             WebBleConnection(device, gatt)
         } catch (error: Throwable) {

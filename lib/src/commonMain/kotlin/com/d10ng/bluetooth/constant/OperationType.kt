@@ -13,7 +13,7 @@ internal sealed class OperationType(
     // 连接
     data class Connect(override val address: String, val obj: Any): OperationType(address, 5000) {
         fun fail() = OperationResult.Connect(address, false, null)
-        fun success(obj: Any) = OperationResult.Connect(address, true, obj)
+        fun success(obj: Any, releaseUndelivered: () -> Unit) = OperationResult.Connect(address, true, obj, releaseUndelivered)
     }
     // 服务发现
     data class DiscoverServices(override val address: String, val obj: Any): OperationType(address, 3000) {

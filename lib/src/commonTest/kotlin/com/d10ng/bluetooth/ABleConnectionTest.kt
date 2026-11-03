@@ -10,6 +10,13 @@ import kotlin.test.assertEquals
 class ABleConnectionTest {
 
     @Test
+    fun payloadLengthRespectsBothAttOverheadAndAttributeLimit() {
+        assertEquals(20, ABleConnection.payloadLength(23))
+        assertEquals(244, ABleConnection.payloadLength(247))
+        assertEquals(512, ABleConnection.payloadLength(517))
+    }
+
+    @Test
     fun notifyStatusUsesServiceAndCharacteristicIdentity() {
         val connection = TestBleConnection()
         val first = characteristic(serviceUuid = "service-a")

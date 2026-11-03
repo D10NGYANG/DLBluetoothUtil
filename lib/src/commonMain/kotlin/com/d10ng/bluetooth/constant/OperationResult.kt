@@ -9,7 +9,7 @@ internal sealed class OperationResult(
     open val address: String
 ) {
     // 连接结果
-    data class Connect(override val address: String, val result: Boolean, val obj: Any?): OperationResult(address)
+    data class Connect(override val address: String, val result: Boolean, val obj: Any?, val releaseUndelivered: () -> Unit = {}): OperationResult(address)
     // 服务发现结果
     data class DiscoverServices(override val address: String, val services: List<BleGattService>): OperationResult(address)
     // 开关通知结果

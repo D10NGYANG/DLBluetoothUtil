@@ -44,6 +44,7 @@ internal class WebBleConnection(
     }
 
     override suspend fun discoverServices(): List<BleGattService> {
+        checkConnected()
         log.d { "[discover_services.start] address=${device.address}" }
         try {
             val services = (gatt.getPrimaryServices() as Promise<Array<dynamic>>).await()
@@ -71,6 +72,7 @@ internal class WebBleConnection(
                 service
                 ))
             }
+            checkConnected()
             mutableServicesFlow.value = list
             log.i {
                 "[discover_services.success] address=${device.address} " +
@@ -87,6 +89,7 @@ internal class WebBleConnection(
     }
 
     override suspend fun requestMaxMtu(): Int {
+        checkConnected()
         // WEB 不支持MTU设置
         log.i { "[request_mtu.fallback] address=${device.address} reason=unsupported payloadLength=20" }
         return 20
@@ -96,6 +99,7 @@ internal class WebBleConnection(
         characteristic: BleGattCharacteristic,
         value: ByteArray
     ) {
+        checkConnected()
         val ch = characteristic.nativeHandle.asDynamic()
         val payload = Uint8Array(value.size)
         value.forEachIndexed { index, byte -> payload[index] = byte }
@@ -138,6 +142,7 @@ internal class WebBleConnection(
         characteristic: BleGattCharacteristic,
         enable: Boolean
     ) {
+        checkConnected()
         val ch = characteristic.nativeHandle.asDynamic()
         val characteristicKey = characteristic.serviceUuid.lowercase() to characteristic.uuid.lowercase()
         if (enable) {
@@ -154,6 +159,7 @@ internal class WebBleConnection(
                 }
                 throw error
             }
+            checkConnected()
             notifyHandlerMap.remove(characteristicKey)?.let { oldHandler ->
                 notifyCharacteristicMap.remove(characteristicKey)?.removeEventListener(
                     "characteristicvaluechanged",
@@ -208,6 +214,7 @@ internal class WebBleConnection(
             }
             notifyCharacteristicMap.remove(characteristicKey)
         }
+        checkConnected()
         updateNotifyStatus(characteristic, enable)
         log.i {
             "[notify.success] address=${device.address} serviceUuid=${characteristic.serviceUuid} " +
@@ -215,7 +222,12 @@ internal class WebBleConnection(
         }
     }
 
+    private fun checkConnected() {
+        check(mutableIsConnectedFlow.value) { "Bluetooth connection is disconnected" }
+    }
+
     override fun disconnect() {
+        if (!mutableIsConnectedFlow.value) return
         log.i { "[disconnect.requested] address=${device.address} source=caller_request" }
         disconnectRequestedByCaller = true
         runCatching { gatt.disconnect() }.onFailure { error ->

@@ -5,17 +5,19 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-[![Latest](https://img.shields.io/badge/version-1.0.1-blue)](#)
+[![Latest](https://img.shields.io/badge/version-1.1.0-blue)](#)
 [![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
 
 - 库模块：`/lib`（KMP + Android/iOS/JS/Wasm）
-- 移动端示例：`/mobileDemo`（Android + iOS Framework）
+- 移动端共享示例：`/mobileDemo`（Android共享UI + iOS Framework）
+- Android应用：`/androidDemo`（独立Android入口）
 - Web 示例：`/webDemo`（Kotlin/JS + Wasm）
 - 实现设计：[lib/ARCHITECTURE.md](lib/ARCHITECTURE.md)
 - 更新日志与升级迁移：[CHANGELOG.md](CHANGELOG.md)
-- `1.0.1` 发布说明：[docs/RELEASE_1.0.1.md](docs/RELEASE_1.0.1.md)
+- `1.1.0` 发布说明：[docs/RELEASE_1.1.0.md](docs/RELEASE_1.1.0.md)
+- `1.1.0` 升级指南：[docs/MIGRATION_1.1.0.md](docs/MIGRATION_1.1.0.md)
 - `1.0.0` 升级指南：[docs/MIGRATION_1.0.0.md](docs/MIGRATION_1.0.0.md)
 
 **在线预览：[https://d10ngyang.github.io/DLBluetoothUtil/](https://d10ngyang.github.io/DLBluetoothUtil/)**
@@ -48,13 +50,14 @@
 
 | 平台            | 代码开启蓝牙 | 最低版本/要求                      | 备注                                 |
 |---------------|--------|------------------------------|------------------------------------|
-| Android       | 支持     | `minSdk 26` / `targetSdk 34` | 需要运行时权限与定位服务（API < 31）；支持 MTU 请求   |
-| iOS (arm64)   | 不可直接开启 | `iOS 15.3+`（示例 `iosApp` 部署）  | `enable()` 仅能触发系统允许的提示流程；需配置用途描述 |
+| Android       | 支持     | `minSdk 26` / `targetSdk 36` | 需要运行时权限与定位服务（API < 31）；支持 MTU 请求   |
+| iOS (arm64 / Simulator arm64)   | 不可直接开启 | `iOS 15.3+`（示例 `iosApp` 部署）  | `enable()` 仅能触发系统允许的提示流程；需配置用途描述 |
 | Web (JS/Wasm) | 不支持    | 现代支持 Web Bluetooth 的浏览器      | 需要 HTTPS 或 localhost，且必须用户手势触发设备请求 |
 
 ## 安装与集成
 
-支持通过 Maven 仓库或本地发布进行集成。
+外部用户使用 [D10NGYANG/maven-repo](https://github.com/D10NGYANG/maven-repo) 的 `main/repository`。
+GitHub Release 提供版本说明，实际依赖制品由该 Maven 仓库分发，不需要 JitPack 或内部 Nexus。
 
 在 `settings.gradle.kts` 或项目仓库管理位置添加：
 
@@ -76,16 +79,15 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.github.D10NGYANG:DLBluetoothUtil:1.0.1")
+            implementation("com.github.D10NGYANG:DLBluetoothUtil:1.1.0")
         }
     }
 }
 ```
 
-从 `1.0.0` 升级到 `1.0.1` 不需要修改公共 BLE API，只需留意扫描和移动端操作日志的精简，参见
-[1.0.1 发布说明](docs/RELEASE_1.0.1.md)。从 `0.9.0` 升级时，还需完成
-[1.0.0 升级指南](docs/MIGRATION_1.0.0.md)中的权限、连接生命周期和日志数据检查；从 `0.8.0`
-升级还需先完成[0.9.0 API 迁移](CHANGELOG.md#从-080-升级到-090)。
+从 `1.0.x` 升级到 `1.1.0`，公共 BLE API 签名保持不变；请检查 Android 最大写入长度、失败传播和
+连接取消清理行为，详见 [1.1.0 升级指南](docs/MIGRATION_1.1.0.md)。从 `0.9.0` 或更早版本升级时，
+还需依次阅读 [1.0.0 升级指南](docs/MIGRATION_1.0.0.md)与 [0.9.0 API 迁移](CHANGELOG.md#从-080-升级到-090)。
 
 ## 日志输出控制
 
@@ -302,7 +304,7 @@ suspend fun demo(scope: CoroutineScope) {
 - 位置服务：在 Android 10/11（API 29/30）上，扫描需要打开位置服务。
 - 运行时权限：库只检查权限，不会主动弹出授权界面。调用方需在执行 `enable()`、`scan()`、
   `scanByAddress()` 或 `connect()` 前，通过 Activity Result API 或自身权限框架完成授权；缺少权限时
-  操作会以异常结束。完整实现见 `mobileDemo` 的 `MainActivity`。
+  操作会以异常结束。完整实现见 `androidDemo` 的 `MainActivity`。
 - `enable()` 会发起 Android 系统蓝牙开启界面并立即返回，不等待用户选择；最终状态以
   `isEnabledFlow` 为准。系统不允许当前进程启动界面时，该调用会抛出异常。
 - 特征写入与 MTU：`requestMaxMtu()` 的支持取决于设备与系统版本；发送数据需自行分包以满足 MTU 限制。
@@ -321,13 +323,19 @@ suspend fun demo(scope: CoroutineScope) {
 
 ## 示例运行
 
-- Android（移动端示例 `mobileDemo`）：
-  - 命令行安装：`./gradlew :mobileDemo:installDebug`
-  - 或使用 Android Studio 打开工程并运行 `mobileDemo`。
+- Android（应用入口 `androidDemo`，共享UI `mobileDemo`）：
+  - 命令行安装：`./gradlew :androidDemo:installDebug`
+  - 或使用 Android Studio 打开工程并运行 `androidDemo`。
 
 - iOS（Swift 示例 `iosApp`）：
   - 使用 Xcode 打开 `iosApp/iosApp.xcodeproj`，配置签名后直接运行。
   - `mobileDemo` 也会生成 iOS Framework，可供集成到现有 App（`linkIosArm64` 等任务）。
+
+- Apple Silicon Mac 上的 iOS 模拟器：
+  - `lib` 与 `mobileDemo` 均提供 `iosSimulatorArm64` 目标；`iosArm64` 仍用于真机。
+  - 自动化测试：`./gradlew :DLBluetoothUtil:iosSimulatorArm64Test`。
+  - Xcode 选择已安装的 iPhone Simulator 后运行 `iosApp`，无需真机签名。
+  - 模拟器可以验证公共逻辑、协程与 UI，不能替代 iPhone/iPad 与真实 BLE 外设的扫描、连接和收发验证。
 
 - Web（浏览器示例 `webDemo`）：
   - JS 开发运行：`./gradlew :webDemo:jsBrowserDevelopmentRun`
@@ -339,3 +347,17 @@ suspend fun demo(scope: CoroutineScope) {
 - [FastBLE](https://github.com/Jasonchenlijian/FastBle)
 - [ble-starter-android](https://github.com/PunchThrough/ble-starter-android)
 - [Android BLE 使用指南](https://punchthrough.com/android-ble-guide/)
+
+## 当前构建与验证
+
+工程采用 Gradle 9.8.2、AGP 9.5.0、Kotlin 2.4.21、Compose Multiplatform 1.12.2；Android compileSdk 37、targetSdk 36、minSdk 26。
+`lib`与`mobileDemo`使用官方Android KMP Library插件；Android应用入口、Manifest及启动图标位于`androidDemo`。iOS仍使用原MobileDemo Framework。
+
+```sh
+./gradlew :DLBluetoothUtil:testAndroidHostTest :DLBluetoothUtil:iosSimulatorArm64Test
+./gradlew :DLBluetoothUtil:jsBrowserTest :DLBluetoothUtil:wasmJsBrowserTest
+./gradlew :androidDemo:assembleDebug :androidDemo:lintDebug
+./gradlew :webDemo:jsBrowserDistribution :webDemo:wasmJsBrowserDistribution
+```
+
+浏览器测试需配置可用的Chromium（例如设置`CHROME_BIN`为Playwright安装的独立Chromium）。新版Android库不再区分debug/release测试，原`testDebugUnitTest`改为`testAndroidHostTest`。

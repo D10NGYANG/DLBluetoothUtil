@@ -14,13 +14,13 @@ import com.d10ng.bluetooth.constant.BleGattCharacteristicProperty
 import com.d10ng.bluetooth.constant.BleGattEvent
 import com.d10ng.bluetooth.constant.BleGattService
 import com.d10ng.bluetooth.constant.OperationType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -41,6 +41,10 @@ object AndroidOperationRunner {
         val callback: BleGattCallbackInstant,
     )
 
+    private val notificationRegistrations = java.util.Collections.synchronizedMap(
+        java.util.WeakHashMap<BluetoothGatt, MutableSet<BluetoothGattCharacteristic>>()
+    )
+
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     fun start() {
     }
@@ -50,22 +54,20 @@ object AndroidOperationRunner {
             for (request in OperationManager.queueChannel) {
                 val operation = request.operation
                 val job = launch(start = CoroutineStart.LAZY) {
-                    when (operation) {
-                        is OperationType.Connect -> connect(request, operation)
-                        is OperationType.DiscoverServices -> discoverServices(request, operation)
-                        is OperationType.Notify -> notify(request, operation)
-                        is OperationType.Write -> write(request, operation)
-                        is OperationType.MtuChanged -> requestMtu(request, operation)
-                    }
-                }
-                request.result.invokeOnCompletion {
-                    if (request.result.isCancelled) {
-                        scope.launch {
-                            job.cancelAndJoin()
-                            cleanupCancelledOperation(request)
+                    request.runSafely {
+                        when (operation) {
+                            is OperationType.Connect -> connect(request, operation)
+                            is OperationType.DiscoverServices -> discoverServices(request, operation)
+                            is OperationType.Notify -> notify(request, operation)
+                            is OperationType.Write -> write(request, operation)
+                            is OperationType.MtuChanged -> requestMtu(request, operation)
                         }
                     }
                 }
+                request.result.invokeOnCompletion { error ->
+                    if (error is CancellationException) job.cancel()
+                }
+                job.invokeOnCompletion { request.recovered.complete(Unit) }
                 job.start()
             }
         }
@@ -95,7 +97,9 @@ object AndroidOperationRunner {
                 request.result.complete(operation.fail())
                 return
             }
-            delivered = request.result.complete(operation.success(ConnectedGatt(event.gatt, callback)))
+            delivered = request.result.complete(operation.success(ConnectedGatt(event.gatt, callback)) {
+                try { gatt.disconnect() } finally { gatt.close() }
+            })
         } finally {
             if (!delivered) {
                 log.w {
@@ -177,32 +181,49 @@ object AndroidOperationRunner {
             request.result.complete(operation.fail())
             return
         }
+        val previouslyEnabled = notificationRegistrations[gatt]?.contains(characteristic) == true
         if (!gatt.setCharacteristicNotification(characteristic, operation.enable)) {
             log.w { "[notify.failed] ${operation.logFields(request.id)} reason=local_registration_rejected" }
             request.result.complete(operation.fail())
             return
         }
-        val value = when {
-            !operation.enable -> BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-            supportsNotify -> BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            else -> BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-        }
-        val event = awaitGattEvent<BleGattEvent.OnDescriptorWrite>(gatt, {
-            it.descriptor === descriptor
-        }) {
-            descriptor.executeWrite(gatt, value)
-        }
-        if (event == null) return request.fail(operation, "设置通知失败")
-        if (event.status != BluetoothGatt.GATT_SUCCESS) {
-            log.w {
-                "[notify.failed] ${operation.logFields(request.id)} " +
-                        "reason=descriptor_write_failed status=${event.status}"
+        var confirmed = false
+        try {
+            val value = when {
+                !operation.enable -> BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+                supportsNotify -> BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                else -> BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
             }
-            request.result.complete(operation.fail())
-            return
+            val event = awaitGattEvent<BleGattEvent.OnDescriptorWrite>(gatt, {
+                it.descriptor === descriptor
+            }) {
+                descriptor.executeWrite(gatt, value)
+            }
+            confirmed = event?.status == BluetoothGatt.GATT_SUCCESS
+            if (!confirmed) {
+                log.w { "[notify.failed] ${operation.logFields(request.id)} status=${event?.status} reason=cccd_write_failed" }
+            }
+            if (confirmed) {
+                synchronized(notificationRegistrations) {
+                    val registrations = notificationRegistrations.getOrPut(gatt) { mutableSetOf() }
+                    if (operation.enable) registrations.add(characteristic) else registrations.remove(characteristic)
+                }
+            }
+        } finally {
+            if (!confirmed) {
+                runCatching {
+                    check(gatt.setCharacteristicNotification(characteristic, previouslyEnabled)) {
+                        "Local notification rollback rejected"
+                    }
+                }.onFailure { log.e { "[notify.rollback_failed] ${it.stackTraceToString()}" } }
+            }
         }
-        log.i { "[notify.success] ${operation.logFields(request.id)}" }
-        request.result.complete(operation.success())
+        if (confirmed) {
+            log.i { "[notify.success] ${operation.logFields(request.id)}" }
+            request.result.complete(operation.success())
+        } else {
+            request.fail(operation, "CCCD write failed")
+        }
     }
 
     @OptIn(ExperimentalUuidApi::class)
@@ -298,8 +319,4 @@ object AndroidOperationRunner {
         result.complete(operation.fail())
     }
 
-    private fun cleanupCancelledOperation(request: OperationRequest) {
-        // connect() 自己清理尚未交付的 GATT；已建立连接的操作取消只结束本次等待。
-        OperationManager.markRecovered(request.operation.address, request.id, request.operation.logName)
-    }
 }

@@ -22,6 +22,8 @@ object WebBleManager: ABleManager() {
 
     private val bluetooth: dynamic by lazy { js("navigator.bluetooth") }
 
+    private val pendingConnections = mutableSetOf<String>()
+
     // 想要访问的服务UUID列表
     private val optionalServices = mutableSetOf(
         "generic_access",
@@ -175,7 +177,17 @@ object WebBleManager: ABleManager() {
     override suspend fun connect(device: BleDevice): ABleConnection {
         log.i { "[connect.requested] address=${device.address} name=${device.name}" }
         return try {
-            val gatt = (device.nativeHandle.asDynamic().gatt.connect() as Promise<dynamic>).await()
+            check(pendingConnections.add(device.address)) { "A connection attempt is already pending" }
+            val server = device.nativeHandle.asDynamic().gatt
+            val gatt = deliverWebConnection(
+                scope = scope,
+                connect = { (server.connect() as Promise<dynamic>).await() },
+                disconnect = {
+                    runCatching { server.disconnect() }
+                        .onFailure { log.e { "[connect.cleanup_failed] ${it.stackTraceToString()}" } }
+                },
+                finished = { pendingConnections.remove(device.address) },
+            )
             log.i { "[connect.ready] address=${device.address} name=${device.name}" }
             WebBleConnection(device, gatt)
         } catch (error: Throwable) {

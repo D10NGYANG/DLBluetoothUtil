@@ -3,21 +3,25 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
-    alias(libs.plugins.android.library)
+    alias(libs.plugins.android.kmp.library)
     id("maven-publish")
 }
 
 group = "com.github.D10NGYANG"
-version = "1.0.1"
+version = "1.1.0"
 
 kotlin {
-    androidTarget {
-        compilerOptions {
-            jvmTarget = JvmTarget.JVM_1_8
-        }
-        publishLibraryVariants("release")
+    android {
+        namespace = "com.d10ng.bluetooth"
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk = libs.versions.android.minSdk.get().toInt()
+        compilerOptions { jvmTarget.set(JvmTarget.JVM_1_8) }
+        // The BLE API does not require consumers to compile against the Demo's SDK.
+        aarMetadata { minCompileSdk = 26 }
+        withHostTest {}
     }
     iosArm64()
+    iosSimulatorArm64()
     js {
         browser()
         binaries.library()
@@ -48,21 +52,8 @@ kotlin {
     }
 }
 
-android {
-    namespace = "com.d10ng.bluetooth"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
-
-    defaultConfig {
-        minSdk = libs.versions.android.minSdk.get().toInt()
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
-    }
-}
-
-val bds100MavenUsername: String by project
-val bds100MavenPassword: String by project
+val bds100MavenUsername = providers.gradleProperty("bds100MavenUsername").orNull
+val bds100MavenPassword = providers.gradleProperty("bds100MavenPassword").orNull
 
 afterEvaluate {
     publishing {

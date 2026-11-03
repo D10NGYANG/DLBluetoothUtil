@@ -3,6 +3,8 @@ package com.d10ng.bluetooth
 import com.d10ng.bluetooth.constant.BleDevice
 import com.d10ng.bluetooth.constant.BleGattCharacteristic
 import com.d10ng.bluetooth.constant.BleGattCharacteristicProperty
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlin.js.Promise
 import kotlin.test.Test
@@ -11,6 +13,43 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class WebBleConnectionTest {
+
+    @Test
+    fun notificationCompletingAfterDisconnectDoesNotRestoreListeners() = runTest {
+        var resolve: (Unit) -> Unit = {}
+        val started = Promise<Unit> { success, _ -> resolve = success }
+        var listeners = 0
+        val native: dynamic = js("({})")
+        native.startNotifications = { started }
+        native.addEventListener = { _: String, _: dynamic -> listeners++ }
+        native.removeEventListener = { _: String, _: dynamic -> listeners-- }
+        val characteristic = BleGattCharacteristic("ch", "service", setOf(BleGattCharacteristicProperty.NOTIFY), native)
+        val gatt: dynamic = js("({})")
+        gatt.disconnect = { }
+        val connection = connection(gatt)
+        val enabling = async(start = CoroutineStart.UNDISPATCHED) {
+            runCatching { connection.notify(characteristic, true) }
+        }
+        connection.disconnect()
+        resolve(Unit)
+        assertTrue(enabling.await().isFailure)
+        assertEquals(0, listeners)
+        assertTrue(connection.notifyStatusFlow.value.isEmpty())
+    }
+
+    @Test
+    fun oldConnectionCannotDisconnectReconnectedServer() {
+        var disconnects = 0
+        val gatt: dynamic = js("({})")
+        gatt.disconnect = { disconnects++ }
+        val old = connection(gatt)
+        old.disconnect()
+        val current = connection(gatt)
+        old.disconnect()
+        assertEquals(1, disconnects)
+        assertTrue(current.isConnectedFlow.value)
+        current.disconnect()
+    }
 
     @Test
     fun discoverServicesAcceptsNativeJavascriptArrays() = runTest {

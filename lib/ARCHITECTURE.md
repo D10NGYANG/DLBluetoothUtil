@@ -104,7 +104,7 @@ Caller
 - 最后一个使用者离开后删除地址锁，避免注册表无限增长；
 - 调用协程取消或操作超时会取消 `OperationRequest.result`，Runner 随之取消等待任务，但不会改变
   已建立连接的生命周期；
-- Runner 结束旧等待前，同地址的新请求停留在恢复门禁。
+- Runner 结束旧等待及清理前，同地址的新请求停留在恢复门禁；每个请求保存恢复信号，避免先恢复后取消造成永久等待。
 
 串行范围覆盖连接、服务发现、通知配置、写入和 MTU 请求。此规则保护 Android GATT 和
 CoreBluetooth 的顺序约束，同时允许多个设备互不阻塞。
@@ -138,6 +138,8 @@ Android/iOS 原生操作一旦发起，不一定能被协程真正撤销。操�
 ### 4.3 回调订阅顺序
 
 Runner 使用 `async(start = CoroutineStart.UNDISPATCHED)` 先安装 Flow 订阅，再调用原生方法。
+Runner 在每个请求边界传播失败结果，普通异常不会终止唯一队列消费者。连接结果完成后若尚未交付就被调用方取消，调度器仍释放未领取的原生连接。
+
 这个顺序是正确性的组成部分，不能改成“先调用、后等待”，否则快速回调会因 `SharedFlow` 无 replay
 而丢失，最终表现为假超时。
 
@@ -175,7 +177,7 @@ Adapter 再按原生连接对象或设备地址过滤通知，并转换为公共
 - 通知通过 `setCharacteristicNotification` 和 CCCD descriptor write 两步完成；
 - 同时支持 `NOTIFY` 与 `INDICATE`，优先使用 Notification；
 - 写入优先选择有响应 WRITE，否则选择 WRITE_NO_RESPONSE；
-- `requestMaxMtu()` 请求最大 517，并把原始 MTU 减 3 后作为 payload 长度返回；
+- `requestMaxMtu()` 请求最大 517，并返回 `minOf(MTU - 3, 512)` 作为 payload 长度；
 - 主动断开立即更新公共状态，收到回调或等待 1 秒后关闭 GATT，关闭操作只执行一次。
 
 ### 6.2 iOS
@@ -199,6 +201,8 @@ Adapter 再按原生连接对象或设备地址过滤通知，并转换为公共
   `registerWebBleUseService()`；
 - `scanByAddress()` 使用 `navigator.bluetooth.getDevices()`，只能返回当前 Origin 已授权设备；
 - GATT 操作直接等待浏览器 Promise，不经过 `OperationManager`，因此没有库级超时或同设备串行；
+- 未交付的连接尝试在取消后负责清理原生连接，并在 Promise 结算前拒绝同设备的新连接尝试；
+- 已结束的连接实例重复 disconnect 不会触碰后续会话；
 - 每个“服务 UUID + 特征 UUID”身份只保留一个 DOM listener，重复启用会替换旧 listener，
   断开时统一移除；
 - Kotlin/JS 把浏览器原生 service/characteristic 数组作为 JS Array 遍历，写入前显式构造
@@ -311,3 +315,8 @@ JS 测试额外验证浏览器原生数组的服务发现适配，以及写入�
 - 断开操作幂等，并释放原生对象、协程或 DOM listener；
 - DEBUG 日志完整输出 BLE 通讯 payload 的 HEX，并携带可反查的设备和特征信息；
 - 原生逃生口必须显式 Opt-in，并在文档中说明绕过的保护。
+
+## 12. AGP 9构建布局
+
+`lib`使用`com.android.kotlin.multiplatform.library`，Android发布为单一variant，保留`DLBluetoothUtil-android`坐标。主机测试通过`withHostTest {}`启用，任务为`:DLBluetoothUtil:testAndroidHostTest`。
+`mobileDemo`只承载共享UI与iOS Framework；`:androidDemo`持有Android应用入口及独立应用Manifest。UI图标使用官方Material Symbols按需资源。

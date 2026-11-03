@@ -20,7 +20,19 @@ internal class OperationRequest(
     val id: Long,
     val operation: OperationType,
     val result: CompletableDeferred<OperationResult> = CompletableDeferred()
-)
+) {
+    val recovered = CompletableDeferred<Unit>()
+
+    suspend fun runSafely(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            result.completeExceptionally(error)
+        }
+    }
+}
 
 /**
  * 移动端原生 BLE 操作的公共调度器。
@@ -60,11 +72,16 @@ internal object OperationManager {
         val operationId = allocateOperationId()
         val startedAt = TimeSource.Monotonic.markNow()
         val operationLock = acquireLock(operation.address)
+        var pending: OperationRequest? = null
+        var delivered = false
+        var locked = false
         try {
             val result = withTimeoutOrNull(operation.timeoutMillis.milliseconds) {
-                operationLock.mutex.withLock {
+                operationLock.mutex.lock()
+                locked = true
+                run {
                     recoveringAddresses.first { operation.address !in it }
-                    val request = OperationRequest(operationId, operation)
+                    val request = OperationRequest(operationId, operation).also { pending = it }
                     var submitted = false
                     try {
                         queueChannel.send(request)
@@ -74,6 +91,9 @@ internal object OperationManager {
                         if (!request.result.isCompleted) {
                             if (submitted) {
                                 markRecovering(operation.address, operationId, operation.logName)
+                                request.recovered.invokeOnCompletion {
+                                    markRecovered(operation.address, operationId, operation.logName)
+                                }
                             }
                             request.result.cancel()
                         }
@@ -86,6 +106,7 @@ internal object OperationManager {
                     "[operation.timeout] ${operation.logFields(operationId)} elapsedMs=$elapsedMs"
                 }
             }
+            delivered = result != null
             return result
         } catch (cancellation: CancellationException) {
             log.w {
@@ -102,6 +123,20 @@ internal object OperationManager {
             }
             throw error
         } finally {
+            // Completing a Deferred does not mean its suspended caller received the resource.
+            if (!delivered) {
+                pending?.result?.let { result ->
+                    result.invokeOnCompletion { error ->
+                        if (error == null) {
+                            @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+                            val connection = result.getCompleted() as? OperationResult.Connect
+                            runCatching { connection?.releaseUndelivered?.invoke() }
+                                .onFailure { log.e { "[connect.cleanup_failed] ${it.stackTraceToString()}" } }
+                        }
+                    }
+                }
+            }
+            if (locked) operationLock.mutex.unlock()
             withContext(NonCancellable) {
                 releaseLock(operation.address, operationLock)
             }

@@ -2,6 +2,9 @@ package com.d10ng.bluetooth
 
 import com.d10ng.bluetooth.constant.OperationResult
 import com.d10ng.bluetooth.constant.OperationType
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -16,6 +19,85 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OperationManagerTest {
+
+    @Test
+    fun recoveryThatFinishesBeforeCallerCancellationDoesNotStick() = runTest {
+        val caller = async(start = CoroutineStart.UNDISPATCHED) {
+            OperationManager.execute<OperationResult.Connect>(OperationType.Connect("early-recovery", Unit))
+        }
+        val request = OperationManager.queueChannel.receive()
+        request.recovered.complete(Unit)
+        caller.cancelAndJoin()
+        val next = async(start = CoroutineStart.UNDISPATCHED) {
+            OperationManager.execute<OperationResult.Connect>(OperationType.Connect("early-recovery", Unit))
+        }
+        val nextRequest = OperationManager.queueChannel.receive()
+        nextRequest.result.complete(OperationResult.Connect("early-recovery", true, Unit))
+        assertTrue(next.await()!!.result)
+    }
+
+    @Test
+    fun failedNativeRequestDoesNotCancelQueueConsumer() = runTest {
+        val processed = CompletableDeferred<Unit>()
+        val failing = OperationRequest(1, OperationType.Connect("failed", Unit))
+        val succeeding = OperationRequest(2, OperationType.Connect("next", Unit))
+        val consumer = launch {
+            for (request in listOf(failing, succeeding)) {
+                val job = launch(start = CoroutineStart.LAZY) {
+                    request.runSafely {
+                        if (request === failing) throw IllegalArgumentException("native failure")
+                        processed.complete(Unit)
+                    }
+                }
+                request.result.invokeOnCompletion { error ->
+                    if (error is CancellationException) job.cancel()
+                }
+                job.start()
+                job.join()
+                assertFalse(job.isCancelled)
+            }
+        }
+        consumer.join()
+        assertTrue(processed.isCompleted)
+        assertTrue(failing.result.isCancelled)
+    }
+
+    @Test
+    fun runnerPreservesCancellation() = runTest {
+        val request = OperationRequest(1, OperationType.Connect("cancelled", Unit))
+        var cancelled = false
+        try {
+            request.runSafely { throw CancellationException("cancel") }
+        } catch (_: CancellationException) {
+            cancelled = true
+        }
+        assertTrue(cancelled)
+        assertFalse(request.result.isCompleted)
+    }
+
+    @Test
+    fun cancellationAfterNativeSuccessReleasesUndeliveredConnection() = runTest {
+        var released = 0
+        val caller = async(start = CoroutineStart.UNDISPATCHED) {
+            OperationManager.execute<OperationResult.Connect>(OperationType.Connect("delivery-race", Unit))
+        }
+        val request = OperationManager.queueChannel.receive()
+        request.result.complete(OperationResult.Connect("delivery-race", true, Unit) { released++ })
+        caller.cancelAndJoin()
+        assertEquals(1, released)
+    }
+
+    @Test
+    fun deliveredConnectionRemainsOwnedByCaller() = runTest {
+        var released = 0
+        val caller = async(start = CoroutineStart.UNDISPATCHED) {
+            OperationManager.execute<OperationResult.Connect>(OperationType.Connect("delivered", Unit))
+        }
+        val request = OperationManager.queueChannel.receive()
+        request.result.complete(OperationResult.Connect("delivered", true, Unit) { released++ })
+        assertTrue(caller.await()!!.result)
+        assertEquals(0, released)
+    }
 
     @Test
     fun operationsForSameAddressAreSerialized() = runTest {
