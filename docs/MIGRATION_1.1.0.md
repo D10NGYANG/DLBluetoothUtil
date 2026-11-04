@@ -1,8 +1,8 @@
 # 升级到 DLBluetoothUtil 1.1.0
 
-## 外部用户安装
+## 安装
 
-本库面向外部用户的制品仓库是 [D10NGYANG/maven-repo](https://github.com/D10NGYANG/maven-repo)，不是内部 Nexus，也不需要 JitPack。
+本库通过 [D10NGYANG/maven-repo](https://github.com/D10NGYANG/maven-repo) 提供 Maven 制品，按以下方式配置仓库与依赖。
 
 ```kotlin
 // settings.gradle.kts

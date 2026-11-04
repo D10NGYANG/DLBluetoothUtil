@@ -4,7 +4,7 @@
 
 ## 安装
 
-**外部用户的Maven制品由 [D10NGYANG/maven-repo](https://github.com/D10NGYANG/maven-repo) 的main分支提供。** GitHub Release提供说明，依赖解析请使用以下仓库，不需要内部Nexus或JitPack。
+通过 [D10NGYANG/maven-repo](https://github.com/D10NGYANG/maven-repo) 的main分支安装Maven制品：
 
 ```kotlin
 maven("https://raw.githubusercontent.com/D10NGYANG/maven-repo/main/repository")
@@ -37,7 +37,7 @@ implementation("com.github.D10NGYANG:DLBluetoothUtil:1.1.0")
 - 本仓库源码安装命令改为`:androidDemo:installDebug`，Android库测试改为`:DLBluetoothUtil:testAndroidHostTest`。
 - 已验证Kotlin2.4.21多平台消费者和Kotlin2.3.21/AGP8.13.2的Android消费者；不承诺所有旧Native/JS编译器兼容。
 
-[完整升级指南](https://github.com/D10NGYANG/DLBluetoothUtil/blob/1.1.0/docs/MIGRATION_1.1.0.md) · [更新日志](https://github.com/D10NGYANG/DLBluetoothUtil/blob/1.1.0/CHANGELOG.md)
+[完整升级指南](https://github.com/D10NGYANG/DLBluetoothUtil/blob/dev/docs/MIGRATION_1.1.0.md) · [更新日志](https://github.com/D10NGYANG/DLBluetoothUtil/blob/1.1.0/CHANGELOG.md)
 
 ## 验证
 

@@ -56,8 +56,8 @@
 
 ## 安装与集成
 
-外部用户使用 [D10NGYANG/maven-repo](https://github.com/D10NGYANG/maven-repo) 的 `main/repository`。
-GitHub Release 提供版本说明，实际依赖制品由该 Maven 仓库分发，不需要 JitPack 或内部 Nexus。
+通过 [D10NGYANG/maven-repo](https://github.com/D10NGYANG/maven-repo) 的 `main/repository` 安装依赖。
+GitHub Release 提供版本说明。
 
 在 `settings.gradle.kts` 或项目仓库管理位置添加：
 
