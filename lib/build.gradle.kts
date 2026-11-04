@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.github.D10NGYANG"
-version = "1.1.0"
+version = "1.1.1"
 
 kotlin {
     android {

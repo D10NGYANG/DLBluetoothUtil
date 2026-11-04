@@ -5,7 +5,7 @@
 ![iOS](https://img.shields.io/badge/iOS-CoreBluetooth-black?logo=apple&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-Bluetooth-4285F4?logo=google-chrome&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
-[![Latest](https://img.shields.io/badge/version-1.1.0-blue)](#)
+[![Latest](https://img.shields.io/badge/version-1.1.1-blue)](#)
 [![GitHub stars](https://img.shields.io/github/stars/D10NGYANG/DLBluetoothUtil?logo=github)](https://github.com/D10NGYANG/DLBluetoothUtil/stargazers)
 
 一个基于 Kotlin Multiplatform 的跨平台 BLE（Bluetooth Low Energy）通讯库。在 Android、iOS 以及 Web 环境下提供统一 API，用于设备扫描、连接、服务发现、写入与通知订阅等核心操作。仓库同时包含移动端与浏览器的示例代码，开箱即用。
@@ -16,6 +16,7 @@
 - Web 示例：`/webDemo`（Kotlin/JS + Wasm）
 - 实现设计：[lib/ARCHITECTURE.md](lib/ARCHITECTURE.md)
 - 更新日志与升级迁移：[CHANGELOG.md](CHANGELOG.md)
+- `1.1.1` 发布与升级说明：[docs/RELEASE_1.1.1.md](docs/RELEASE_1.1.1.md)
 - `1.1.0` 发布说明：[docs/RELEASE_1.1.0.md](docs/RELEASE_1.1.0.md)
 - `1.1.0` 升级指南：[docs/MIGRATION_1.1.0.md](docs/MIGRATION_1.1.0.md)
 - `1.0.0` 升级指南：[docs/MIGRATION_1.0.0.md](docs/MIGRATION_1.0.0.md)
@@ -79,7 +80,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.github.D10NGYANG:DLBluetoothUtil:1.1.0")
+            implementation("com.github.D10NGYANG:DLBluetoothUtil:1.1.1")
         }
     }
 }
@@ -88,6 +89,8 @@ kotlin {
 从 `1.0.x` 升级到 `1.1.0`，公共 BLE API 签名保持不变；请检查 Android 最大写入长度、失败传播和
 连接取消清理行为，详见 [1.1.0 升级指南](docs/MIGRATION_1.1.0.md)。从 `0.9.0` 或更早版本升级时，
 还需依次阅读 [1.0.0 升级指南](docs/MIGRATION_1.0.0.md)与 [0.9.0 API 迁移](CHANGELOG.md#从-080-升级到-090)。
+
+从 `1.1.0` 升级到 `1.1.1` 无需调整 BLE API；DLLogUtil 升级至 0.3.0，注意日志缓冲及全局等级语义，见 [升级说明](docs/RELEASE_1.1.1.md)。
 
 ## 日志输出控制
 
@@ -99,7 +102,7 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 // 日志库（用于控制输出等级）
-                implementation("com.github.D10NGYANG:DLLogUtil:0.2.1")
+                implementation("com.github.D10NGYANG:DLLogUtil:0.3.0")
             }
         }
     }
@@ -124,6 +127,7 @@ fun initLogging() {
 }
 ```
 
+- 从 `1.1.1` 起，日志采集流最多缓冲 1024 条，慢消费者积压时丢弃最旧消息；全局等级影响后续创建的 Logger。需要单独控制蓝牙日志时显式设置 `BluetoothManagerLog.miniLevel`。
 - 常见日志等级：`VERBOSE`、`DEBUG`、`INFO`、`WARN`、`ERROR`、`NONE`（具体以 DLLogUtil 定义为准）
 - 推荐在应用启动时设置，如：Android 的 `Application.onCreate`、JVM/桌面项目的 `main` 函数、Web 页面初始化等
 - `DEBUG` 会输出完整的 BLE 收发数据，事件名为 `[ble.tx]` 和 `[ble.rx]`，payload 使用大写、连续的
